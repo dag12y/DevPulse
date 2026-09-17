@@ -8,6 +8,7 @@ import (
 
 	"github.com/dag12y/devpulse/internal/config"
 	"github.com/dag12y/devpulse/internal/database"
+	"github.com/dag12y/devpulse/internal/projects"
 )
 
 func main() {
@@ -22,6 +23,7 @@ func main() {
 	defer db.Close()
 
 	mux := http.NewServeMux()
+	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -44,6 +46,12 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok","database":"connected"}`))
 	})
+
+	mux.HandleFunc("POST /v1/analytics/projects", projectHandler.Create)
+	mux.HandleFunc("GET /v1/analytics/projects", projectHandler.List)
+	mux.HandleFunc("GET /v1/analytics/projects/{id}", projectHandler.Get)
+	mux.HandleFunc("PATCH /v1/analytics/projects/{id}", projectHandler.Update)
+	mux.HandleFunc("DELETE /v1/analytics/projects/{id}", projectHandler.Delete)
 
 	addr := ":" + cfg.APIPort
 
