@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dag12y/devpulse/internal/analytics"
 	"github.com/dag12y/devpulse/internal/config"
 	"github.com/dag12y/devpulse/internal/database"
 	"github.com/dag12y/devpulse/internal/projects"
@@ -24,6 +25,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
+	analyticsHandler := analytics.NewHandler(analytics.NewService(analytics.NewRepository(db.Pool)))
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -52,6 +54,7 @@ func main() {
 	mux.HandleFunc("GET /v1/analytics/projects/{id}", projectHandler.Get)
 	mux.HandleFunc("PATCH /v1/analytics/projects/{id}", projectHandler.Update)
 	mux.HandleFunc("DELETE /v1/analytics/projects/{id}", projectHandler.Delete)
+	mux.HandleFunc("POST /v1/analytics/events", analyticsHandler.Ingest)
 
 	addr := ":" + cfg.APIPort
 
