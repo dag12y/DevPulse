@@ -1,69 +1,111 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import { getSummary, getTraffic, getTopPages, type AnalyticsSummary, type TrafficData, type TopPage } from "@/lib/api";
+
+export default function OverviewPage() {
+  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+  const [traffic, setTraffic] = useState<TrafficData[]>([]);
+  const [topPages, setTopPages] = useState<TopPage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([getSummary(), getTraffic(14), getTopPages(10)])
+      .then(([s, t, p]) => {
+        setSummary(s);
+        setTraffic(t);
+        setTopPages(p);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-zinc-500">Loading analytics...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          <p className="font-medium">Failed to load analytics</p>
+          <p className="text-sm mt-1">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const maxViews = Math.max(...traffic.map((d) => d.page_views), 1);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="p-6 space-y-6">
+      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Overview</h2>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Page Views" value={summary?.total_page_views ?? 0} />
+        <MetricCard label="Unique Visitors" value={summary?.unique_visitors ?? 0} />
+        <MetricCard label="Sessions" value={summary?.sessions ?? 0} />
+        <MetricCard label="Bounce Rate" value={`${((summary?.bounce_rate ?? 0) * 100).toFixed(1)}%`} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Traffic (14 days)</h3>
+          <div className="flex items-end gap-1 h-40">
+            {traffic.map((d) => (
+              <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                <div
+                  className="w-full bg-blue-500 rounded-t"
+                  style={{ height: `${(d.page_views / maxViews) * 100}%` }}
+                  title={`${d.date}: ${d.page_views} views`}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between mt-2 text-xs text-zinc-500">
+            <span>{traffic[0]?.date}</span>
+            <span>{traffic[traffic.length - 1]?.date}</span>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Top Pages</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
+                <th className="pb-2 font-medium">Path</th>
+                <th className="pb-2 font-medium text-right">Views</th>
+                <th className="pb-2 font-medium text-right">Visitors</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topPages.map((p) => (
+                <tr key={p.path} className="border-b border-zinc-100 dark:border-zinc-800/50">
+                  <td className="py-2 text-zinc-800 dark:text-zinc-200 truncate max-w-48">{p.path}</td>
+                  <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{p.views}</td>
+                  <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{p.unique_visitors}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </main>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
+      <p className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </p>
     </div>
   );
 }
