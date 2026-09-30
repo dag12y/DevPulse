@@ -14,6 +14,6 @@ WORKDIR /app
 
 COPY --from=builder /devpulse-api /devpulse-api
 
-EXPOSE 4000
+EXPOSE 8080
 
 CMD ["/devpulse-api"]

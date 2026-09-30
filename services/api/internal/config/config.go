@@ -11,7 +11,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		AppEnv:      getEnv("APP_ENV", "development"),
-		APIPort:     getEnv("API_PORT", "4000"),
+		APIPort:     getEnv("API_PORT", "8080"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 	}
 }
