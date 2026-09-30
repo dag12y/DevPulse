@@ -56,6 +56,9 @@ func main() {
 	mux.HandleFunc("PATCH /v1/analytics/projects/{id}", projectHandler.Update)
 	mux.HandleFunc("DELETE /v1/analytics/projects/{id}", projectHandler.Delete)
 	mux.HandleFunc("POST /v1/analytics/events", analyticsHandler.Ingest)
+	mux.HandleFunc("GET /v1/analytics/summary", analyticsHandler.Summary)
+	mux.HandleFunc("GET /v1/analytics/traffic", analyticsHandler.Traffic)
+	mux.HandleFunc("GET /v1/analytics/pages", analyticsHandler.TopPages)
 
 	addr := ":" + cfg.APIPort
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 )
 
 const maxRequestBodyBytes = 64 << 10
@@ -44,6 +45,69 @@ func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
+}
+
+func (handler *Handler) Summary(w http.ResponseWriter, r *http.Request) {
+	summary, err := handler.service.Summary(r.Context(), r.URL.Query().Get("project_id"))
+	if err != nil {
+		writeQueryError(w, "load summary", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (handler *Handler) Traffic(w http.ResponseWriter, r *http.Request) {
+	days, ok := queryInt(w, r, "days", 30)
+	if !ok {
+		return
+	}
+	points, err := handler.service.Traffic(r.Context(), r.URL.Query().Get("project_id"), days)
+	if err != nil {
+		writeQueryError(w, "load traffic", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, points)
+}
+
+func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
+	limit, ok := queryInt(w, r, "limit", 20)
+	if !ok {
+		return
+	}
+	pages, err := handler.service.TopPages(r.Context(), r.URL.Query().Get("project_id"), limit)
+	if err != nil {
+		writeQueryError(w, "load top pages", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, pages)
+}
+
+func queryInt(w http.ResponseWriter, r *http.Request, name string, fallback int) (int, bool) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return fallback, true
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, name+" must be an integer")
+		return 0, false
+	}
+	return value, true
+}
+
+func writeQueryError(w http.ResponseWriter, action string, err error) {
+	switch {
+	case errors.Is(err, ErrUnknownProject):
+		writeError(w, http.StatusNotFound, "project not found")
+	default:
+		var validationError *ValidationError
+		if errors.As(err, &validationError) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Printf("%s: %v", action, err)
+		writeError(w, http.StatusInternalServerError, "unable to "+action)
+	}
 }
 
 func decodeEvent(w http.ResponseWriter, r *http.Request, target *Event) error {

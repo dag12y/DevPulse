@@ -11,11 +11,26 @@ import (
 )
 
 type stubRepository struct {
-	ingest func(context.Context, Event) error
+	ingest   func(context.Context, Event) error
+	summary  func(context.Context, string) (Summary, error)
+	traffic  func(context.Context, string, int) ([]TrafficPoint, error)
+	topPages func(context.Context, string, int) ([]TopPage, error)
 }
 
 func (stub *stubRepository) Ingest(ctx context.Context, event Event) error {
 	return stub.ingest(ctx, event)
+}
+
+func (stub *stubRepository) Summary(ctx context.Context, trackingID string) (Summary, error) {
+	return stub.summary(ctx, trackingID)
+}
+
+func (stub *stubRepository) Traffic(ctx context.Context, trackingID string, days int) ([]TrafficPoint, error) {
+	return stub.traffic(ctx, trackingID, days)
+}
+
+func (stub *stubRepository) TopPages(ctx context.Context, trackingID string, limit int) ([]TopPage, error) {
+	return stub.topPages(ctx, trackingID, limit)
 }
 
 func TestIngestAcceptsValidPageView(t *testing.T) {
@@ -96,6 +111,79 @@ func testHandler(now time.Time, ingest func(context.Context, Event) error) *Hand
 	service := NewService(&stubRepository{ingest: ingest})
 	service.now = func() time.Time { return now }
 	return NewHandler(service)
+}
+
+func queryHandler() *Handler {
+	return NewHandler(NewService(&stubRepository{
+		ingest: func(context.Context, Event) error { return nil },
+		summary: func(context.Context, string) (Summary, error) {
+			return Summary{TotalPageViews: 10, UniqueVisitors: 4, Sessions: 5, BounceRate: 0.2, AvgSessionDuration: 60}, nil
+		},
+		traffic: func(_ context.Context, _ string, days int) ([]TrafficPoint, error) {
+			if days == 99 {
+				return []TrafficPoint{}, ErrUnknownProject
+			}
+			return []TrafficPoint{{Date: "2026-09-30", PageViews: 3, Visitors: 2}}, nil
+		},
+		topPages: func(context.Context, string, int) ([]TopPage, error) {
+			return []TopPage{{Path: "/about", Views: 7, UniqueVisitors: 5}}, nil
+		},
+	}))
+}
+
+func TestSummaryReturnsMetrics(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Summary(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/summary", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"total_page_views":10`, `"bounce_rate":0.2`, `"avg_session_duration":60`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestTrafficDefaultsTo30Days(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Traffic(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/traffic", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"date":"2026-09-30"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTrafficRejectsInvalidDays(t *testing.T) {
+	for _, target := range []string{"/v1/analytics/traffic?days=abc", "/v1/analytics/traffic?days=0", "/v1/analytics/traffic?days=400"} {
+		recorder := httptest.NewRecorder()
+		queryHandler().Traffic(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("target=%s status=%d body=%s", target, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestQueryMapsUnknownProject(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Traffic(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/traffic?days=99", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTopPagesRejectsInvalidLimit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().TopPages(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/pages?limit=101", nil))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestQueryRejectsInvalidTrackingID(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Summary(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/summary?project_id=bad", nil))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
 }
 
 func request(body string) *http.Request {
