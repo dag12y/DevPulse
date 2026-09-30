@@ -1,6 +1,6 @@
 # DevPulse Tracking
 
-This document defines the planned tracker behavior. The tracker is not implemented in the initial foundation.
+This document defines the tracker behavior. The tracker is implemented in `packages/tracker/`.
 
 ## Basic Installation
 

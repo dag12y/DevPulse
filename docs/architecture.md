@@ -12,7 +12,7 @@ PostgreSQL is the primary data store.
 
 ## Current Foundation
 
-The repository currently contains the dashboard scaffold, a Go API with a `GET /health` endpoint, and Docker Compose services for the API and PostgreSQL. The tracker, event ingestion, persistence, and dashboard analytics are not implemented yet.
+The repository contains a Go API with health checks, project CRUD, and analytics event ingestion. The browser tracker is implemented and sends page-view events compatible with the API. Docker Compose services are defined for the API and PostgreSQL. The Next.js dashboard is still the default scaffold — analytics views are not yet built.
 
 ## Intended Data Flow
 
@@ -41,7 +41,7 @@ The tracker will be a small browser script installed on a website. Its responsib
 
 ### API
 
-The Go API will receive and validate analytics events, apply rate limits and bot detection, manage visitors and sessions, enrich events with approximate geography, persist data, and provide dashboard analytics.
+The Go API receives and validates analytics events, manages visitors and sessions, and persists data. CORS is enabled for cross-origin tracker requests. Rate limits, bot detection, and approximate geography enrichment are planned.
 
 ### PostgreSQL
 

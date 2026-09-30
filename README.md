@@ -4,7 +4,7 @@ DevPulse is a lightweight, privacy-conscious web analytics platform for develope
 
 ## Status
 
-This repository is the initial project foundation. The Go API currently exposes a health endpoint, PostgreSQL and the API are defined in Docker Compose, and the Next.js dashboard scaffold is in place. Event collection, persistence, the tracker, and analytics views are planned work.
+The Go API exposes health checks, project CRUD, and analytics event ingestion with CORS enabled. The browser tracker is implemented and produces events compatible with the API. PostgreSQL and the API are defined in Docker Compose. The Next.js dashboard is still the default scaffold — analytics views are planned work.
 
 ## Planned Features
 

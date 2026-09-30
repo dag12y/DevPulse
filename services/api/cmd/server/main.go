@@ -9,6 +9,7 @@ import (
 	"github.com/dag12y/devpulse/internal/analytics"
 	"github.com/dag12y/devpulse/internal/config"
 	"github.com/dag12y/devpulse/internal/database"
+	internalhttp "github.com/dag12y/devpulse/internal/http"
 	"github.com/dag12y/devpulse/internal/projects"
 )
 
@@ -60,7 +61,7 @@ func main() {
 
 	log.Printf("DevPulse API listening on %s", addr)
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, internalhttp.CORS(mux)); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
 }
