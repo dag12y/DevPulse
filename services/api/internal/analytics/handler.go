@@ -13,16 +13,22 @@ const maxRequestBodyBytes = 64 << 10
 
 type Handler struct {
 	service *Service
+	limiter *Limiter
 }
 
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{service: service, limiter: NewLimiter(maxEventsPerWindow, rateLimitWindow)}
 }
 
 func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 	var event Event
 	if err := decodeEvent(w, r, &event); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !handler.limiter.Allow(event.ProjectID, ClientIP(r)) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}
 	if err := handler.service.Ingest(r.Context(), event, RequestMeta{

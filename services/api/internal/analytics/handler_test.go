@@ -127,6 +127,25 @@ func TestIngestDoesNotExposeRepositoryErrors(t *testing.T) {
 	}
 }
 
+func TestIngestRateLimitsExcessiveEvents(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	handler := testHandler(now, func(context.Context, Event) error { return nil })
+	handler.limiter = NewLimiter(2, time.Minute)
+
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		handler.Ingest(recorder, request(validEventJSON(now)))
+		if recorder.Code != http.StatusAccepted {
+			t.Fatalf("request %d: status=%d body=%s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+	recorder := httptest.NewRecorder()
+	handler.Ingest(recorder, request(validEventJSON(now)))
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func testHandler(now time.Time, ingest func(context.Context, Event) error) *Handler {
 	service := NewService(&stubRepository{ingest: ingest})
 	service.now = func() time.Time { return now }
