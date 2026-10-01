@@ -18,7 +18,7 @@ A small, privacy-conscious browser tracker that sends page views to the DevPulse
 <script async src="/analytics.js" data-project="dp_your_project_id" data-endpoint="https://api.example.com/v1/analytics/events"></script>
 ```
 
-The development default is `http://localhost:8080/v1/analytics/events`.
+The development default is `http://localhost:5000/v1/analytics/events`.
 
 ## Build and test
 

@@ -1,6 +1,6 @@
 import type { TrackerConfig } from "./types";
 
-export const defaultEndpoint = "http://localhost:8080/v1/analytics/events";
+export const defaultEndpoint = "http://localhost:5000/v1/analytics/events";
 
 export function configFromScript(document: Document): TrackerConfig | null {
   const currentScript = document.currentScript as HTMLScriptElement | null;

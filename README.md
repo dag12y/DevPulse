@@ -58,7 +58,7 @@ The future tracker package will live in `packages/tracker/`.
 3. Start the API: `docker compose up -d api`
 4. Start the dashboard: `pnpm dev`
 
-The dashboard runs at <http://localhost:3000>. The API health endpoint is available at <http://localhost:8080/health>.
+The dashboard runs at <http://localhost:3000>. The API health endpoint is available at <http://localhost:5000/health>.
 
 ## Development Principles
 
