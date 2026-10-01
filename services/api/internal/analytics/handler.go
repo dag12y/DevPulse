@@ -25,7 +25,10 @@ func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := handler.service.Ingest(r.Context(), event); err != nil {
+	if err := handler.service.Ingest(r.Context(), event, RequestMeta{
+		UserAgent: r.UserAgent(),
+		ClientIP:  ClientIP(r),
+	}); err != nil {
 		switch {
 		case errors.Is(err, ErrUnknownProject):
 			writeError(w, http.StatusNotFound, "project not found")

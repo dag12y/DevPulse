@@ -16,6 +16,7 @@ type Repository interface {
 type Service struct {
 	repository Repository
 	now        func() time.Time
+	geo        GeoResolver
 }
 
 type ValidationError struct {
@@ -27,13 +28,14 @@ func (err *ValidationError) Error() string {
 }
 
 func NewService(repository Repository) *Service {
-	return &Service{repository: repository, now: time.Now}
+	return &Service{repository: repository, now: time.Now, geo: NullGeoResolver{}}
 }
 
-func (service *Service) Ingest(ctx context.Context, event Event) error {
+func (service *Service) Ingest(ctx context.Context, event Event, meta RequestMeta) error {
 	if err := event.Validate(service.now().UTC()); err != nil {
 		return &ValidationError{err: fmt.Errorf("validate event: %w", err)}
 	}
+	event.Enrich(meta, service.geo)
 	return service.repository.Ingest(ctx, event)
 }
 

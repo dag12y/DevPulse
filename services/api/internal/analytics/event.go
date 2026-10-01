@@ -45,6 +45,10 @@ type Event struct {
 	Language  string     `json:"language"`
 	Timezone  string     `json:"timezone"`
 	Campaign  Campaign   `json:"campaign"`
+
+	// Enrichment is set server-side from request metadata (User-Agent,
+	// transient client IP). It is never decoded from the request body.
+	Enrichment Enrichment `json:"-"`
 }
 
 type Page struct {

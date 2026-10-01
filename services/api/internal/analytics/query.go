@@ -49,11 +49,11 @@ func (repository *PostgresRepository) resolveProjectID(ctx context.Context, trac
 func (repository *PostgresRepository) Summary(ctx context.Context, trackingID string) (Summary, error) {
 	var summary Summary
 
-	pageViewsQuery := `SELECT COUNT(*), COUNT(DISTINCT visitor_id) FROM analytics_page_views`
+	pageViewsQuery := `SELECT COUNT(*), COUNT(DISTINCT visitor_id) FROM analytics_page_views WHERE is_bot = FALSE`
 	sessionsQuery := `SELECT COUNT(*),
 		COALESCE(AVG(CASE WHEN is_bounce THEN 1.0 ELSE 0.0 END), 0),
 		COALESCE(AVG(EXTRACT(EPOCH FROM (last_seen_at - started_at))), 0)
-		FROM analytics_sessions`
+		FROM analytics_sessions WHERE is_bot = FALSE`
 
 	var args []any
 	if trackingID != "" {
@@ -61,8 +61,8 @@ func (repository *PostgresRepository) Summary(ctx context.Context, trackingID st
 		if err != nil {
 			return summary, err
 		}
-		pageViewsQuery += ` WHERE project_id = $1`
-		sessionsQuery += ` WHERE project_id = $1`
+		pageViewsQuery += ` AND project_id = $1`
+		sessionsQuery += ` AND project_id = $1`
 		args = append(args, projectID)
 	}
 
@@ -101,7 +101,7 @@ func (repository *PostgresRepository) Traffic(ctx context.Context, trackingID st
 			INTERVAL '1 day'
 		) AS day
 		LEFT JOIN analytics_page_views pv
-			ON DATE(pv.occurred_at) = day `+projectFilter+`
+			ON DATE(pv.occurred_at) = day AND pv.is_bot = FALSE `+projectFilter+`
 		GROUP BY day
 		ORDER BY day`, args...)
 	if err != nil {
@@ -126,14 +126,14 @@ func (repository *PostgresRepository) TopPages(ctx context.Context, trackingID s
 	pages := []TopPage{}
 
 	query := `SELECT path, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS unique_visitors
-		FROM analytics_page_views`
+		FROM analytics_page_views WHERE is_bot = FALSE`
 	var args []any
 	if trackingID != "" {
 		projectID, err := repository.resolveProjectID(ctx, trackingID)
 		if err != nil {
 			return pages, err
 		}
-		query += ` WHERE project_id = $1`
+		query += ` AND project_id = $1`
 		args = append(args, projectID)
 	}
 	if len(args) == 0 {

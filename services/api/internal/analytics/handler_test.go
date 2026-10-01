@@ -113,6 +113,47 @@ func testHandler(now time.Time, ingest func(context.Context, Event) error) *Hand
 	return NewHandler(service)
 }
 
+func TestIngestEnrichesEventFromRequest(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	var captured Event
+	handler := testHandler(now, func(_ context.Context, event Event) error {
+		captured = event
+		return nil
+	})
+
+	req := request(validEventJSON(now))
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	req.RemoteAddr = "203.0.113.7:51234"
+	handler.Ingest(httptest.NewRecorder(), req)
+
+	if captured.Enrichment.DeviceType != "desktop" || captured.Enrichment.Browser != "Chrome" || captured.Enrichment.BrowserVersion != "131.0.0.0" {
+		t.Fatalf("unexpected enrichment: %#v", captured.Enrichment)
+	}
+	if captured.Enrichment.OS != "Windows" || captured.Enrichment.OSVersion != "10" {
+		t.Fatalf("unexpected os: %#v", captured.Enrichment)
+	}
+	if captured.Enrichment.IsBot {
+		t.Fatal("desktop Chrome must not be flagged as bot")
+	}
+}
+
+func TestIngestFlagsBotUserAgent(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	var captured Event
+	handler := testHandler(now, func(_ context.Context, event Event) error {
+		captured = event
+		return nil
+	})
+
+	req := request(validEventJSON(now))
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+	handler.Ingest(httptest.NewRecorder(), req)
+
+	if !captured.Enrichment.IsBot || captured.Enrichment.DeviceType != "bot" {
+		t.Fatalf("expected bot enrichment: %#v", captured.Enrichment)
+	}
+}
+
 func queryHandler() *Handler {
 	return NewHandler(NewService(&stubRepository{
 		ingest: func(context.Context, Event) error { return nil },

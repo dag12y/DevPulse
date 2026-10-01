@@ -53,11 +53,16 @@ func (repository *PostgresRepository) Ingest(ctx context.Context, event Event) e
 	_, err = tx.Exec(ctx, `INSERT INTO analytics_page_views (
 		event_id, project_id, visitor_id, session_id, path, title, referrer,
 		screen_width, screen_height, viewport_width, viewport_height, language, timezone,
-		utm_source, utm_medium, utm_campaign, utm_term, utm_content, occurred_at
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		utm_source, utm_medium, utm_campaign, utm_term, utm_content, occurred_at,
+		country, region, device_type, browser, browser_version, os, os_version, is_bot
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+		$20, $21, $22, $23, $24, $25, $26, $27)`,
 		event.EventID, projectID, visitorID, sessionID, event.Page.Path, nullable(event.Page.Title), nullable(event.Page.Referrer),
 		event.Screen.Width, event.Screen.Height, event.Viewport.Width, event.Viewport.Height, nullable(event.Language), event.Timezone,
 		event.Campaign.Source, event.Campaign.Medium, event.Campaign.Campaign, event.Campaign.Term, event.Campaign.Content, event.Timestamp,
+		nullable(event.Enrichment.Country), nullable(event.Enrichment.Region),
+		event.Enrichment.DeviceType, event.Enrichment.Browser, nullable(event.Enrichment.BrowserVersion),
+		event.Enrichment.OS, nullable(event.Enrichment.OSVersion), event.Enrichment.IsBot,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -90,12 +95,13 @@ func projectForTrackingID(ctx context.Context, tx pgx.Tx, trackingID string) (st
 func upsertVisitor(ctx context.Context, tx pgx.Tx, projectID string, event Event) (string, error) {
 	var visitorID string
 	err := tx.QueryRow(ctx, `INSERT INTO analytics_visitors (
-		project_id, visitor_key, first_seen_at, last_seen_at, first_referrer
-	) VALUES ($1, $2, $3, $3, $4)
+		project_id, visitor_key, first_seen_at, last_seen_at, first_referrer, first_country
+	) VALUES ($1, $2, $3, $3, $4, $5)
 	ON CONFLICT (project_id, visitor_key) DO UPDATE SET
 		last_seen_at = GREATEST(analytics_visitors.last_seen_at, EXCLUDED.last_seen_at),
 		updated_at = NOW()
-	RETURNING id::text`, projectID, event.VisitorID, event.Timestamp, nullable(event.Page.Referrer)).Scan(&visitorID)
+	RETURNING id::text`, projectID, event.VisitorID, event.Timestamp,
+		nullable(event.Page.Referrer), nullable(event.Enrichment.Country)).Scan(&visitorID)
 	if err != nil {
 		return "", fmt.Errorf("upsert visitor: %w", err)
 	}
@@ -110,9 +116,13 @@ func upsertSession(ctx context.Context, tx pgx.Tx, projectID, visitorID string, 
 		ORDER BY last_seen_at DESC LIMIT 1 FOR UPDATE`, projectID, visitorID, event.Timestamp.Add(-sessionTimeout), event.Timestamp).Scan(&sessionID, &pageViews)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `INSERT INTO analytics_sessions (
-			project_id, visitor_id, started_at, last_seen_at, landing_page, exit_page, page_views, referrer, is_bounce
-		) VALUES ($1, $2, $3, $3, $4, $4, 1, $5, true) RETURNING id::text`,
-			projectID, visitorID, event.Timestamp, event.Page.Path, nullable(event.Page.Referrer)).Scan(&sessionID)
+			project_id, visitor_id, started_at, last_seen_at, landing_page, exit_page, page_views, referrer, is_bounce,
+			country, device_type, browser, browser_version, os, os_version, is_bot
+		) VALUES ($1, $2, $3, $3, $4, $4, 1, $5, true, $6, $7, $8, $9, $10, $11, $12) RETURNING id::text`,
+			projectID, visitorID, event.Timestamp, event.Page.Path, nullable(event.Page.Referrer),
+			nullable(event.Enrichment.Country), event.Enrichment.DeviceType, event.Enrichment.Browser,
+			nullable(event.Enrichment.BrowserVersion), event.Enrichment.OS,
+			nullable(event.Enrichment.OSVersion), event.Enrichment.IsBot).Scan(&sessionID)
 		if err != nil {
 			return "", fmt.Errorf("create session: %w", err)
 		}
