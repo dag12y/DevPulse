@@ -24,6 +24,10 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := database.Migrate(ctx, db.Pool); err != nil {
+		log.Fatalf("database migration failed: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
 	analyticsHandler := analytics.NewHandler(analytics.NewService(analytics.NewRepository(db.Pool)))

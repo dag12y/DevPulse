@@ -3,7 +3,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Projects
-CREATE TABLE analytics_projects (
+CREATE TABLE IF NOT EXISTS analytics_projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID,
     name VARCHAR(255) NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE analytics_projects (
 );
 
 -- Visitors
-CREATE TABLE analytics_visitors (
+CREATE TABLE IF NOT EXISTS analytics_visitors (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES analytics_projects(id) ON DELETE CASCADE,
     visitor_key VARCHAR(255) NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE analytics_visitors (
 );
 
 -- Sessions
-CREATE TABLE analytics_sessions (
+CREATE TABLE IF NOT EXISTS analytics_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES analytics_projects(id) ON DELETE CASCADE,
     visitor_id UUID NOT NULL REFERENCES analytics_visitors(id) ON DELETE CASCADE,
@@ -58,7 +58,7 @@ CREATE TABLE analytics_sessions (
 );
 
 -- Page views
-CREATE TABLE analytics_page_views (
+CREATE TABLE IF NOT EXISTS analytics_page_views (
     id BIGSERIAL PRIMARY KEY,
     event_id UUID NOT NULL UNIQUE,
     project_id UUID NOT NULL REFERENCES analytics_projects(id) ON DELETE CASCADE,
@@ -97,22 +97,22 @@ CREATE TABLE analytics_page_views (
 );
 
 -- Project page-view queries
-CREATE INDEX idx_analytics_page_views_project_occurred
+CREATE INDEX IF NOT EXISTS idx_analytics_page_views_project_occurred
     ON analytics_page_views(project_id, occurred_at DESC);
 
-CREATE INDEX idx_analytics_page_views_project_path
+CREATE INDEX IF NOT EXISTS idx_analytics_page_views_project_path
     ON analytics_page_views(project_id, path);
 
-CREATE INDEX idx_analytics_page_views_session
+CREATE INDEX IF NOT EXISTS idx_analytics_page_views_session
     ON analytics_page_views(session_id);
 
 -- Session queries
-CREATE INDEX idx_analytics_sessions_project_started
+CREATE INDEX IF NOT EXISTS idx_analytics_sessions_project_started
     ON analytics_sessions(project_id, started_at DESC);
 
-CREATE INDEX idx_analytics_sessions_visitor
+CREATE INDEX IF NOT EXISTS idx_analytics_sessions_visitor
     ON analytics_sessions(visitor_id);
 
 -- Visitor queries
-CREATE INDEX idx_analytics_visitors_project_last_seen
+CREATE INDEX IF NOT EXISTS idx_analytics_visitors_project_last_seen
     ON analytics_visitors(project_id, last_seen_at DESC);
