@@ -94,6 +94,24 @@ func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sources)
 }
 
+func (handler *Handler) Countries(w http.ResponseWriter, r *http.Request) {
+	countries, err := handler.service.Countries(r.Context(), r.URL.Query().Get("project_id"))
+	if err != nil {
+		writeQueryError(w, "load countries", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, countries)
+}
+
+func (handler *Handler) Devices(w http.ResponseWriter, r *http.Request) {
+	devices, err := handler.service.Devices(r.Context(), r.URL.Query().Get("project_id"))
+	if err != nil {
+		writeQueryError(w, "load devices", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, devices)
+}
+
 func queryInt(w http.ResponseWriter, r *http.Request, name string, fallback int) (int, bool) {
 	raw := r.URL.Query().Get(name)
 	if raw == "" {

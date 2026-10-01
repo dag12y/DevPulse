@@ -12,6 +12,8 @@ type Repository interface {
 	Traffic(context.Context, string, int) ([]TrafficPoint, error)
 	TopPages(context.Context, string, int) ([]TopPage, error)
 	Sources(context.Context, string) ([]Source, error)
+	Countries(context.Context, string) ([]Country, error)
+	Devices(context.Context, string) (Devices, error)
 }
 
 type Service struct {
@@ -77,6 +79,20 @@ func (service *Service) Sources(ctx context.Context, trackingID string) ([]Sourc
 		return []Source{}, &ValidationError{err: err}
 	}
 	return service.repository.Sources(ctx, trackingID)
+}
+
+func (service *Service) Countries(ctx context.Context, trackingID string) ([]Country, error) {
+	if err := validateTrackingFilter(trackingID); err != nil {
+		return []Country{}, &ValidationError{err: err}
+	}
+	return service.repository.Countries(ctx, trackingID)
+}
+
+func (service *Service) Devices(ctx context.Context, trackingID string) (Devices, error) {
+	if err := validateTrackingFilter(trackingID); err != nil {
+		return Devices{}, &ValidationError{err: err}
+	}
+	return service.repository.Devices(ctx, trackingID)
 }
 
 func validateTrackingFilter(trackingID string) error {

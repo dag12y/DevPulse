@@ -11,11 +11,13 @@ import (
 )
 
 type stubRepository struct {
-	ingest   func(context.Context, Event) error
-	summary  func(context.Context, string) (Summary, error)
-	traffic  func(context.Context, string, int) ([]TrafficPoint, error)
-	topPages func(context.Context, string, int) ([]TopPage, error)
-	sources  func(context.Context, string) ([]Source, error)
+	ingest    func(context.Context, Event) error
+	summary   func(context.Context, string) (Summary, error)
+	traffic   func(context.Context, string, int) ([]TrafficPoint, error)
+	topPages  func(context.Context, string, int) ([]TopPage, error)
+	sources   func(context.Context, string) ([]Source, error)
+	countries func(context.Context, string) ([]Country, error)
+	devices   func(context.Context, string) (Devices, error)
 }
 
 func (stub *stubRepository) Ingest(ctx context.Context, event Event) error {
@@ -36,6 +38,14 @@ func (stub *stubRepository) TopPages(ctx context.Context, trackingID string, lim
 
 func (stub *stubRepository) Sources(ctx context.Context, trackingID string) ([]Source, error) {
 	return stub.sources(ctx, trackingID)
+}
+
+func (stub *stubRepository) Countries(ctx context.Context, trackingID string) ([]Country, error) {
+	return stub.countries(ctx, trackingID)
+}
+
+func (stub *stubRepository) Devices(ctx context.Context, trackingID string) (Devices, error) {
+	return stub.devices(ctx, trackingID)
 }
 
 func TestIngestAcceptsValidPageView(t *testing.T) {
@@ -177,6 +187,16 @@ func queryHandler() *Handler {
 		sources: func(context.Context, string) ([]Source, error) {
 			return []Source{{Source: "Google", Category: "Organic Search", PageViews: 7, Visitors: 5, Percentage: 70}}, nil
 		},
+		countries: func(context.Context, string) ([]Country, error) {
+			return []Country{{Country: "ET", PageViews: 7, Visitors: 5, Percentage: 70}}, nil
+		},
+		devices: func(context.Context, string) (Devices, error) {
+			return Devices{
+				DeviceTypes:      []DeviceBreakdown{{Name: "desktop", PageViews: 7, Visitors: 5, Percentage: 70}},
+				Browsers:         []DeviceBreakdown{{Name: "Chrome", PageViews: 7, Visitors: 5, Percentage: 100}},
+				OperatingSystems: []DeviceBreakdown{{Name: "Windows", PageViews: 7, Visitors: 5, Percentage: 100}},
+			}, nil
+		},
 	}))
 }
 
@@ -242,6 +262,32 @@ func TestSourcesReturnsMetrics(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	for _, want := range []string{`"source":"Google"`, `"category":"Organic Search"`, `"page_views":7`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestCountriesReturnsMetrics(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Countries(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/countries", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"country":"ET"`, `"page_views":7`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestDevicesReturnsMetrics(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Devices(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/devices", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"device_types"`, `"browsers"`, `"operating_systems"`, `"name":"Chrome"`} {
 		if !strings.Contains(recorder.Body.String(), want) {
 			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
 		}

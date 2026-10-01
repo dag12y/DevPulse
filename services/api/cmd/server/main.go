@@ -64,6 +64,8 @@ func main() {
 	mux.HandleFunc("GET /v1/analytics/traffic", analyticsHandler.Traffic)
 	mux.HandleFunc("GET /v1/analytics/pages", analyticsHandler.TopPages)
 	mux.HandleFunc("GET /v1/analytics/sources", analyticsHandler.Sources)
+	mux.HandleFunc("GET /v1/analytics/countries", analyticsHandler.Countries)
+	mux.HandleFunc("GET /v1/analytics/devices", analyticsHandler.Devices)
 
 	addr := ":" + cfg.APIPort
 

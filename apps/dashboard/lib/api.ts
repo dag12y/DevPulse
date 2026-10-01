@@ -40,6 +40,26 @@ export interface TrafficSource {
   percentage: number;
 }
 
+export interface CountryStats {
+  country: string;
+  page_views: number;
+  visitors: number;
+  percentage: number;
+}
+
+export interface DeviceBreakdown {
+  name: string;
+  page_views: number;
+  visitors: number;
+  percentage: number;
+}
+
+export interface DevicesStats {
+  device_types: DeviceBreakdown[];
+  browsers: DeviceBreakdown[];
+  operating_systems: DeviceBreakdown[];
+}
+
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -70,4 +90,12 @@ export function getTopPages(limit = 20): Promise<TopPage[]> {
 
 export function getSources(): Promise<TrafficSource[]> {
   return fetchAPI<TrafficSource[]>("/v1/analytics/sources");
+}
+
+export function getCountries(): Promise<CountryStats[]> {
+  return fetchAPI<CountryStats[]>("/v1/analytics/countries");
+}
+
+export function getDevices(): Promise<DevicesStats> {
+  return fetchAPI<DevicesStats>("/v1/analytics/devices");
 }

@@ -39,6 +39,26 @@ type Source struct {
 	Percentage float64 `json:"percentage"`
 }
 
+type Country struct {
+	Country    string  `json:"country"`
+	PageViews  int64   `json:"page_views"`
+	Visitors   int64   `json:"visitors"`
+	Percentage float64 `json:"percentage"`
+}
+
+type DeviceBreakdown struct {
+	Name       string  `json:"name"`
+	PageViews  int64   `json:"page_views"`
+	Visitors   int64   `json:"visitors"`
+	Percentage float64 `json:"percentage"`
+}
+
+type Devices struct {
+	DeviceTypes      []DeviceBreakdown `json:"device_types"`
+	Browsers         []DeviceBreakdown `json:"browsers"`
+	OperatingSystems []DeviceBreakdown `json:"operating_systems"`
+}
+
 // resolveProjectID maps a public tracking ID to the internal project UUID.
 // Reads are allowed on disabled projects; only unknown IDs report
 // ErrUnknownProject.
@@ -229,4 +249,141 @@ func (repository *PostgresRepository) Sources(ctx context.Context, trackingID st
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].PageViews > sources[j].PageViews })
 	return sources, nil
+}
+
+// Countries aggregates non-bot page views by country code.
+// Rows without geography (NullGeoResolver era) collapse to "Unknown".
+func (repository *PostgresRepository) Countries(ctx context.Context, trackingID string) ([]Country, error) {
+	countries := []Country{}
+
+	query := `SELECT COALESCE(NULLIF(country, ''), 'Unknown'), COUNT(*), COUNT(DISTINCT visitor_id)
+		FROM analytics_page_views WHERE is_bot = FALSE`
+	var args []any
+	if trackingID != "" {
+		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		if err != nil {
+			return countries, err
+		}
+		query += ` AND project_id = $1`
+		args = append(args, projectID)
+	}
+	query += ` GROUP BY 1 ORDER BY COUNT(*) DESC`
+
+	rows, err := repository.pool.Query(ctx, query, args...)
+	if err != nil {
+		return countries, fmt.Errorf("query countries: %w", err)
+	}
+	defer rows.Close()
+
+	var total int64
+	type row struct {
+		name     string
+		views    int64
+		visitors int64
+	}
+	var rows_ []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.name, &r.views, &r.visitors); err != nil {
+			return countries, fmt.Errorf("scan country: %w", err)
+		}
+		rows_ = append(rows_, r)
+		total += r.views
+	}
+	if err := rows.Err(); err != nil {
+		return countries, fmt.Errorf("iterate countries: %w", err)
+	}
+	for _, r := range rows_ {
+		entry := Country{Country: r.name, PageViews: r.views, Visitors: r.visitors}
+		if total > 0 {
+			entry.Percentage = float64(r.views*10000/total) / 100
+		}
+		countries = append(countries, entry)
+	}
+	return countries, nil
+}
+
+// Devices aggregates non-bot page views by device type, browser and OS.
+func (repository *PostgresRepository) Devices(ctx context.Context, trackingID string) (Devices, error) {
+	var devices Devices
+
+	var projectID string
+	if trackingID != "" {
+		var err error
+		projectID, err = repository.resolveProjectID(ctx, trackingID)
+		if err != nil {
+			return devices, err
+		}
+	}
+
+	var err error
+	if devices.DeviceTypes, err = repository.breakdown(ctx, "device_type", projectID); err != nil {
+		return devices, err
+	}
+	if devices.Browsers, err = repository.breakdown(ctx, "browser", projectID); err != nil {
+		return devices, err
+	}
+	if devices.OperatingSystems, err = repository.breakdown(ctx, "os", projectID); err != nil {
+		return devices, err
+	}
+	return devices, nil
+}
+
+// breakdown aggregates a single whitelisted dimension column.
+func (repository *PostgresRepository) breakdown(ctx context.Context, column, projectID string) ([]DeviceBreakdown, error) {
+	entries := []DeviceBreakdown{}
+
+	var col string
+	switch column {
+	case "device_type":
+		col = `COALESCE(NULLIF(device_type, ''), 'unknown')`
+	case "browser":
+		col = `COALESCE(NULLIF(browser, ''), 'Other')`
+	case "os":
+		col = `COALESCE(NULLIF(os, ''), 'Other')`
+	default:
+		return entries, fmt.Errorf("unknown dimension: %s", column)
+	}
+
+	query := `SELECT ` + col + `, COUNT(*), COUNT(DISTINCT visitor_id)
+		FROM analytics_page_views WHERE is_bot = FALSE`
+	var args []any
+	if projectID != "" {
+		query += ` AND project_id = $1`
+		args = append(args, projectID)
+	}
+	query += ` GROUP BY 1 ORDER BY COUNT(*) DESC`
+
+	rows, err := repository.pool.Query(ctx, query, args...)
+	if err != nil {
+		return entries, fmt.Errorf("query %s: %w", column, err)
+	}
+	defer rows.Close()
+
+	var total int64
+	type row struct {
+		name     string
+		views    int64
+		visitors int64
+	}
+	var rows_ []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.name, &r.views, &r.visitors); err != nil {
+			return entries, fmt.Errorf("scan %s: %w", column, err)
+		}
+		rows_ = append(rows_, r)
+		total += r.views
+	}
+	if err := rows.Err(); err != nil {
+		return entries, fmt.Errorf("iterate %s: %w", column, err)
+	}
+	for _, r := range rows_ {
+		entry := DeviceBreakdown{Name: r.name, PageViews: r.views, Visitors: r.visitors}
+		if total > 0 {
+			entry.Percentage = float64(r.views*10000/total) / 100
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
