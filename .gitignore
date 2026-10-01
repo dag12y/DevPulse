@@ -24,3 +24,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local-only files (never track)
+trask.md
+task.md
+index.html
+analytics.demo.js
