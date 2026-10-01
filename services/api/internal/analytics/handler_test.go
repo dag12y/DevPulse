@@ -18,6 +18,7 @@ type stubRepository struct {
 	sources   func(context.Context, string) ([]Source, error)
 	countries func(context.Context, string) ([]Country, error)
 	devices   func(context.Context, string) (Devices, error)
+	realtime  func(context.Context, string) (Realtime, error)
 }
 
 func (stub *stubRepository) Ingest(ctx context.Context, event Event) error {
@@ -46,6 +47,10 @@ func (stub *stubRepository) Countries(ctx context.Context, trackingID string) ([
 
 func (stub *stubRepository) Devices(ctx context.Context, trackingID string) (Devices, error) {
 	return stub.devices(ctx, trackingID)
+}
+
+func (stub *stubRepository) Realtime(ctx context.Context, trackingID string) (Realtime, error) {
+	return stub.realtime(ctx, trackingID)
 }
 
 func TestIngestAcceptsValidPageView(t *testing.T) {
@@ -197,6 +202,9 @@ func queryHandler() *Handler {
 				OperatingSystems: []DeviceBreakdown{{Name: "Windows", PageViews: 7, Visitors: 5, Percentage: 100}},
 			}, nil
 		},
+		realtime: func(context.Context, string) (Realtime, error) {
+			return Realtime{ActiveVisitors: 2, Pages: []RealtimePage{{Path: "/", Visitors: 2}}}, nil
+		},
 	}))
 }
 
@@ -288,6 +296,19 @@ func TestDevicesReturnsMetrics(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	for _, want := range []string{`"device_types"`, `"browsers"`, `"operating_systems"`, `"name":"Chrome"`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestRealtimeReturnsMetrics(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Realtime(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/realtime", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"active_visitors":2`, `"path":"/"`} {
 		if !strings.Contains(recorder.Body.String(), want) {
 			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
 		}

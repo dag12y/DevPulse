@@ -99,3 +99,17 @@ export function getCountries(): Promise<CountryStats[]> {
 export function getDevices(): Promise<DevicesStats> {
   return fetchAPI<DevicesStats>("/v1/analytics/devices");
 }
+
+export interface RealtimePage {
+  path: string;
+  visitors: number;
+}
+
+export interface RealtimeStats {
+  active_visitors: number;
+  pages: RealtimePage[];
+}
+
+export function getRealtime(): Promise<RealtimeStats> {
+  return fetchAPI<RealtimeStats>("/v1/analytics/realtime");
+}

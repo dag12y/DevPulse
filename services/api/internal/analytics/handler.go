@@ -112,6 +112,15 @@ func (handler *Handler) Devices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, devices)
 }
 
+func (handler *Handler) Realtime(w http.ResponseWriter, r *http.Request) {
+	realtime, err := handler.service.Realtime(r.Context(), r.URL.Query().Get("project_id"))
+	if err != nil {
+		writeQueryError(w, "load realtime", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, realtime)
+}
+
 func queryInt(w http.ResponseWriter, r *http.Request, name string, fallback int) (int, bool) {
 	raw := r.URL.Query().Get(name)
 	if raw == "" {

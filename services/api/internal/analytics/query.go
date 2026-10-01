@@ -59,6 +59,20 @@ type Devices struct {
 	OperatingSystems []DeviceBreakdown `json:"operating_systems"`
 }
 
+type RealtimePage struct {
+	Path     string `json:"path"`
+	Visitors int64  `json:"visitors"`
+}
+
+type Realtime struct {
+	ActiveVisitors int64          `json:"active_visitors"`
+	Pages          []RealtimePage `json:"pages"`
+}
+
+// realtimeWindow defines how recently a visitor must have been seen
+// to count as online. Matches REALTIME_WINDOW_MINUTES in .env.example.
+const realtimeWindow = "5 minutes"
+
 // resolveProjectID maps a public tracking ID to the internal project UUID.
 // Reads are allowed on disabled projects; only unknown IDs report
 // ErrUnknownProject.
@@ -386,4 +400,43 @@ func (repository *PostgresRepository) breakdown(ctx context.Context, column, pro
 		entries = append(entries, entry)
 	}
 	return entries, nil
+}
+
+// Realtime reports visitors seen within the activity window, plus the
+// pages they were last seen on. Bots are excluded.
+func (repository *PostgresRepository) Realtime(ctx context.Context, trackingID string) (Realtime, error) {
+	realtime := Realtime{Pages: []RealtimePage{}}
+
+	filter := `occurred_at >= NOW() - INTERVAL '` + realtimeWindow + `' AND is_bot = FALSE`
+	var args []any
+	if trackingID != "" {
+		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		if err != nil {
+			return realtime, err
+		}
+		filter += ` AND project_id = $1`
+		args = append(args, projectID)
+	}
+
+	if err := repository.pool.QueryRow(ctx, `SELECT COUNT(DISTINCT visitor_id) FROM analytics_page_views WHERE `+filter, args...).Scan(&realtime.ActiveVisitors); err != nil {
+		return realtime, fmt.Errorf("query realtime visitors: %w", err)
+	}
+
+	rows, err := repository.pool.Query(ctx, `SELECT path, COUNT(DISTINCT visitor_id) FROM analytics_page_views WHERE `+filter+` GROUP BY path ORDER BY COUNT(*) DESC`, args...)
+	if err != nil {
+		return realtime, fmt.Errorf("query realtime pages: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var page RealtimePage
+		if err := rows.Scan(&page.Path, &page.Visitors); err != nil {
+			return realtime, fmt.Errorf("scan realtime page: %w", err)
+		}
+		realtime.Pages = append(realtime.Pages, page)
+	}
+	if err := rows.Err(); err != nil {
+		return realtime, fmt.Errorf("iterate realtime pages: %w", err)
+	}
+	return realtime, nil
 }

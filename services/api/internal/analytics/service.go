@@ -14,6 +14,7 @@ type Repository interface {
 	Sources(context.Context, string) ([]Source, error)
 	Countries(context.Context, string) ([]Country, error)
 	Devices(context.Context, string) (Devices, error)
+	Realtime(context.Context, string) (Realtime, error)
 }
 
 type Service struct {
@@ -93,6 +94,13 @@ func (service *Service) Devices(ctx context.Context, trackingID string) (Devices
 		return Devices{}, &ValidationError{err: err}
 	}
 	return service.repository.Devices(ctx, trackingID)
+}
+
+func (service *Service) Realtime(ctx context.Context, trackingID string) (Realtime, error) {
+	if err := validateTrackingFilter(trackingID); err != nil {
+		return Realtime{}, &ValidationError{err: err}
+	}
+	return service.repository.Realtime(ctx, trackingID)
 }
 
 func validateTrackingFilter(trackingID string) error {
