@@ -3,6 +3,7 @@ package analytics
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -28,6 +29,14 @@ type TopPage struct {
 	Path           string `json:"path"`
 	Views          int64  `json:"views"`
 	UniqueVisitors int64  `json:"unique_visitors"`
+}
+
+type Source struct {
+	Source     string  `json:"source"`
+	Category   string  `json:"category"`
+	PageViews  int64   `json:"page_views"`
+	Visitors   int64   `json:"visitors"`
+	Percentage float64 `json:"percentage"`
 }
 
 // resolveProjectID maps a public tracking ID to the internal project UUID.
@@ -161,4 +170,63 @@ func (repository *PostgresRepository) TopPages(ctx context.Context, trackingID s
 		return pages, fmt.Errorf("iterate top pages: %w", err)
 	}
 	return pages, nil
+}
+
+// Sources aggregates non-bot page views by traffic source. Raw
+// referrer/UTM groups come from PostgreSQL and are classified in Go
+// (ClassifySource), so known hosts collapse to friendly names.
+func (repository *PostgresRepository) Sources(ctx context.Context, trackingID string) ([]Source, error) {
+	sources := []Source{}
+
+	query := `SELECT COALESCE(referrer, ''), COALESCE(utm_source, ''), COUNT(*), COUNT(DISTINCT visitor_id)
+		FROM analytics_page_views WHERE is_bot = FALSE`
+	var args []any
+	if trackingID != "" {
+		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		if err != nil {
+			return sources, err
+		}
+		query += ` AND project_id = $1`
+		args = append(args, projectID)
+	}
+	query += ` GROUP BY referrer, utm_source`
+
+	rows, err := repository.pool.Query(ctx, query, args...)
+	if err != nil {
+		return sources, fmt.Errorf("query sources: %w", err)
+	}
+	defer rows.Close()
+
+	merged := map[string]*Source{}
+	order := []string{}
+	var total int64
+	for rows.Next() {
+		var referrer, utmSource string
+		var views, visitors int64
+		if err := rows.Scan(&referrer, &utmSource, &views, &visitors); err != nil {
+			return sources, fmt.Errorf("scan source: %w", err)
+		}
+		name, category := ClassifySource(referrer, utmSource)
+		entry, ok := merged[name]
+		if !ok {
+			entry = &Source{Source: name, Category: category}
+			merged[name] = entry
+			order = append(order, name)
+		}
+		entry.PageViews += views
+		entry.Visitors += visitors
+		total += views
+	}
+	if err := rows.Err(); err != nil {
+		return sources, fmt.Errorf("iterate sources: %w", err)
+	}
+	for _, name := range order {
+		entry := merged[name]
+		if total > 0 {
+			entry.Percentage = float64(entry.PageViews*10000/total) / 100
+		}
+		sources = append(sources, *entry)
+	}
+	sort.Slice(sources, func(i, j int) bool { return sources[i].PageViews > sources[j].PageViews })
+	return sources, nil
 }

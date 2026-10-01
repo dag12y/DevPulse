@@ -85,6 +85,15 @@ func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, pages)
 }
 
+func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
+	sources, err := handler.service.Sources(r.Context(), r.URL.Query().Get("project_id"))
+	if err != nil {
+		writeQueryError(w, "load sources", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sources)
+}
+
 func queryInt(w http.ResponseWriter, r *http.Request, name string, fallback int) (int, bool) {
 	raw := r.URL.Query().Get(name)
 	if raw == "" {

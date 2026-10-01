@@ -11,6 +11,7 @@ type Repository interface {
 	Summary(context.Context, string) (Summary, error)
 	Traffic(context.Context, string, int) ([]TrafficPoint, error)
 	TopPages(context.Context, string, int) ([]TopPage, error)
+	Sources(context.Context, string) ([]Source, error)
 }
 
 type Service struct {
@@ -69,6 +70,13 @@ func (service *Service) TopPages(ctx context.Context, trackingID string, limit i
 		return []TopPage{}, &ValidationError{err: fmt.Errorf("limit must be between 1 and %d", maxTopPages)}
 	}
 	return service.repository.TopPages(ctx, trackingID, limit)
+}
+
+func (service *Service) Sources(ctx context.Context, trackingID string) ([]Source, error) {
+	if err := validateTrackingFilter(trackingID); err != nil {
+		return []Source{}, &ValidationError{err: err}
+	}
+	return service.repository.Sources(ctx, trackingID)
 }
 
 func validateTrackingFilter(trackingID string) error {

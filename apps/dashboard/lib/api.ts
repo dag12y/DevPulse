@@ -32,6 +32,14 @@ export interface TopPage {
   unique_visitors: number;
 }
 
+export interface TrafficSource {
+  source: string;
+  category: string;
+  page_views: number;
+  visitors: number;
+  percentage: number;
+}
+
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -58,4 +66,8 @@ export function getTraffic(days = 30): Promise<TrafficData[]> {
 
 export function getTopPages(limit = 20): Promise<TopPage[]> {
   return fetchAPI<TopPage[]>(`/v1/analytics/pages?limit=${limit}`);
+}
+
+export function getSources(): Promise<TrafficSource[]> {
+  return fetchAPI<TrafficSource[]>("/v1/analytics/sources");
 }

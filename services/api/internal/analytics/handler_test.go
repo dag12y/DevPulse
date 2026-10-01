@@ -15,6 +15,7 @@ type stubRepository struct {
 	summary  func(context.Context, string) (Summary, error)
 	traffic  func(context.Context, string, int) ([]TrafficPoint, error)
 	topPages func(context.Context, string, int) ([]TopPage, error)
+	sources  func(context.Context, string) ([]Source, error)
 }
 
 func (stub *stubRepository) Ingest(ctx context.Context, event Event) error {
@@ -31,6 +32,10 @@ func (stub *stubRepository) Traffic(ctx context.Context, trackingID string, days
 
 func (stub *stubRepository) TopPages(ctx context.Context, trackingID string, limit int) ([]TopPage, error) {
 	return stub.topPages(ctx, trackingID, limit)
+}
+
+func (stub *stubRepository) Sources(ctx context.Context, trackingID string) ([]Source, error) {
+	return stub.sources(ctx, trackingID)
 }
 
 func TestIngestAcceptsValidPageView(t *testing.T) {
@@ -169,6 +174,9 @@ func queryHandler() *Handler {
 		topPages: func(context.Context, string, int) ([]TopPage, error) {
 			return []TopPage{{Path: "/about", Views: 7, UniqueVisitors: 5}}, nil
 		},
+		sources: func(context.Context, string) ([]Source, error) {
+			return []Source{{Source: "Google", Category: "Organic Search", PageViews: 7, Visitors: 5, Percentage: 70}}, nil
+		},
 	}))
 }
 
@@ -224,6 +232,19 @@ func TestQueryRejectsInvalidTrackingID(t *testing.T) {
 	queryHandler().Summary(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/summary?project_id=bad", nil))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSourcesReturnsMetrics(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().Sources(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/sources", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"source":"Google"`, `"category":"Organic Search"`, `"page_views":7`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
 	}
 }
 
