@@ -11,14 +11,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const projectColumns = `id::text, name, tracking_id, allowed_domains, timezone, retention_days, enabled, created_at, updated_at`
+const projectColumns = `id::text, workspace_id::text, name, tracking_id, allowed_domains, timezone, retention_days, enabled, created_at, updated_at`
 
 type Repository interface {
-	Create(context.Context, CreateInput, string) (*Project, error)
-	List(context.Context) ([]Project, error)
-	Get(context.Context, string) (*Project, error)
-	Update(context.Context, string, UpdateInput) (*Project, error)
-	Delete(context.Context, string) error
+	Create(context.Context, string, CreateInput, string) (*Project, error)
+	List(context.Context, string) ([]Project, error)
+	Get(context.Context, string, string) (*Project, error)
+	Update(context.Context, string, string, UpdateInput) (*Project, error)
+	Delete(context.Context, string, string) error
 }
 
 type PostgresRepository struct {
@@ -29,10 +29,10 @@ func NewRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
 
-func (repository *PostgresRepository) Create(ctx context.Context, input CreateInput, trackingID string) (*Project, error) {
-	columns := []string{"name", "tracking_id", "allowed_domains"}
-	placeholders := []string{"$1", "$2", "$3"}
-	args := []any{input.Name, trackingID, input.AllowedDomains}
+func (repository *PostgresRepository) Create(ctx context.Context, workspaceID string, input CreateInput, trackingID string) (*Project, error) {
+	columns := []string{"workspace_id", "name", "tracking_id", "allowed_domains"}
+	placeholders := []string{"$1", "$2", "$3", "$4"}
+	args := []any{workspaceID, input.Name, trackingID, input.AllowedDomains}
 
 	if input.Timezone != nil {
 		columns = append(columns, "timezone")
@@ -53,8 +53,8 @@ func (repository *PostgresRepository) Create(ctx context.Context, input CreateIn
 	return project, nil
 }
 
-func (repository *PostgresRepository) List(ctx context.Context) ([]Project, error) {
-	rows, err := repository.pool.Query(ctx, `SELECT `+projectColumns+` FROM analytics_projects ORDER BY created_at DESC`)
+func (repository *PostgresRepository) List(ctx context.Context, workspaceID string) ([]Project, error) {
+	rows, err := repository.pool.Query(ctx, `SELECT `+projectColumns+` FROM analytics_projects WHERE workspace_id = $1 ORDER BY created_at DESC`, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -75,15 +75,15 @@ func (repository *PostgresRepository) List(ctx context.Context) ([]Project, erro
 	return projects, nil
 }
 
-func (repository *PostgresRepository) Get(ctx context.Context, id string) (*Project, error) {
-	project, err := scanProject(repository.pool.QueryRow(ctx, `SELECT `+projectColumns+` FROM analytics_projects WHERE id = $1`, id))
+func (repository *PostgresRepository) Get(ctx context.Context, workspaceID string, id string) (*Project, error) {
+	project, err := scanProject(repository.pool.QueryRow(ctx, `SELECT `+projectColumns+` FROM analytics_projects WHERE id = $1 AND workspace_id = $2`, id, workspaceID))
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 	return project, nil
 }
 
-func (repository *PostgresRepository) Update(ctx context.Context, id string, input UpdateInput) (*Project, error) {
+func (repository *PostgresRepository) Update(ctx context.Context, workspaceID string, id string, input UpdateInput) (*Project, error) {
 	assignments := make([]string, 0, 6)
 	args := make([]any, 0, 6)
 	if input.Name != nil {
@@ -108,8 +108,9 @@ func (repository *PostgresRepository) Update(ctx context.Context, id string, inp
 	}
 	assignments = append(assignments, "updated_at = NOW()")
 	args = append(args, id)
+	args = append(args, workspaceID)
 
-	query := fmt.Sprintf(`UPDATE analytics_projects SET %s WHERE id = $%d RETURNING %s`, strings.Join(assignments, ", "), len(args), projectColumns)
+	query := fmt.Sprintf(`UPDATE analytics_projects SET %s WHERE id = $%d AND workspace_id = $%d RETURNING %s`, strings.Join(assignments, ", "), len(args)-1, len(args), projectColumns)
 	project, err := scanProject(repository.pool.QueryRow(ctx, query, args...))
 	if err != nil {
 		return nil, fmt.Errorf("update project: %w", err)
@@ -117,8 +118,8 @@ func (repository *PostgresRepository) Update(ctx context.Context, id string, inp
 	return project, nil
 }
 
-func (repository *PostgresRepository) Delete(ctx context.Context, id string) error {
-	commandTag, err := repository.pool.Exec(ctx, `DELETE FROM analytics_projects WHERE id = $1`, id)
+func (repository *PostgresRepository) Delete(ctx context.Context, workspaceID string, id string) error {
+	commandTag, err := repository.pool.Exec(ctx, `DELETE FROM analytics_projects WHERE id = $1 AND workspace_id = $2`, id, workspaceID)
 	if err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
@@ -136,6 +137,7 @@ func scanProject(row rowScanner) (*Project, error) {
 	project := new(Project)
 	err := row.Scan(
 		&project.ID,
+		&project.WorkspaceID,
 		&project.Name,
 		&project.TrackingID,
 		&project.AllowedDomains,

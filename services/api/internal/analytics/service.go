@@ -7,14 +7,14 @@ import (
 )
 
 type Repository interface {
-	Ingest(context.Context, Event) error
-	Summary(context.Context, string) (Summary, error)
-	Traffic(context.Context, string, int) ([]TrafficPoint, error)
-	TopPages(context.Context, string, int) ([]TopPage, error)
-	Sources(context.Context, string) ([]Source, error)
-	Countries(context.Context, string) ([]Country, error)
-	Devices(context.Context, string) (Devices, error)
-	Realtime(context.Context, string) (Realtime, error)
+	Ingest(context.Context, Event, string) error
+	Summary(context.Context, string, string) (Summary, error)
+	Traffic(context.Context, string, string, int) ([]TrafficPoint, error)
+	TopPages(context.Context, string, string, int) ([]TopPage, error)
+	Sources(context.Context, string, string) ([]Source, error)
+	Countries(context.Context, string, string) ([]Country, error)
+	Devices(context.Context, string, string) (Devices, error)
+	Realtime(context.Context, string, string) (Realtime, error)
 }
 
 type Service struct {
@@ -40,7 +40,8 @@ func (service *Service) Ingest(ctx context.Context, event Event, meta RequestMet
 		return &ValidationError{err: fmt.Errorf("validate event: %w", err)}
 	}
 	event.Enrich(meta, service.geo)
-	return service.repository.Ingest(ctx, event)
+	originHost := OriginHost(meta.Origin, meta.Referer)
+	return service.repository.Ingest(ctx, event, originHost)
 }
 
 const (
@@ -48,59 +49,80 @@ const (
 	maxTopPages    = 100
 )
 
-func (service *Service) Summary(ctx context.Context, trackingID string) (Summary, error) {
+func (service *Service) Summary(ctx context.Context, workspaceID, trackingID string) (Summary, error) {
+	if workspaceID == "" {
+		return Summary{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
 	if err := validateTrackingFilter(trackingID); err != nil {
 		return Summary{}, &ValidationError{err: err}
 	}
-	return service.repository.Summary(ctx, trackingID)
+	return service.repository.Summary(ctx, workspaceID, trackingID)
 }
 
-func (service *Service) Traffic(ctx context.Context, trackingID string, days int) ([]TrafficPoint, error) {
+func (service *Service) Traffic(ctx context.Context, workspaceID, trackingID string, days int) ([]TrafficPoint, error) {
+	if workspaceID == "" {
+		return []TrafficPoint{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
 	if err := validateTrackingFilter(trackingID); err != nil {
 		return []TrafficPoint{}, &ValidationError{err: err}
 	}
 	if days < 1 || days > maxTrafficDays {
 		return []TrafficPoint{}, &ValidationError{err: fmt.Errorf("days must be between 1 and %d", maxTrafficDays)}
 	}
-	return service.repository.Traffic(ctx, trackingID, days)
+	return service.repository.Traffic(ctx, workspaceID, trackingID, days)
 }
 
-func (service *Service) TopPages(ctx context.Context, trackingID string, limit int) ([]TopPage, error) {
+func (service *Service) TopPages(ctx context.Context, workspaceID, trackingID string, limit int) ([]TopPage, error) {
+	if workspaceID == "" {
+		return []TopPage{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
 	if err := validateTrackingFilter(trackingID); err != nil {
 		return []TopPage{}, &ValidationError{err: err}
 	}
 	if limit < 1 || limit > maxTopPages {
 		return []TopPage{}, &ValidationError{err: fmt.Errorf("limit must be between 1 and %d", maxTopPages)}
 	}
-	return service.repository.TopPages(ctx, trackingID, limit)
+	return service.repository.TopPages(ctx, workspaceID, trackingID, limit)
 }
 
-func (service *Service) Sources(ctx context.Context, trackingID string) ([]Source, error) {
+func (service *Service) Sources(ctx context.Context, workspaceID, trackingID string) ([]Source, error) {
+	if workspaceID == "" {
+		return []Source{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
 	if err := validateTrackingFilter(trackingID); err != nil {
 		return []Source{}, &ValidationError{err: err}
 	}
-	return service.repository.Sources(ctx, trackingID)
+	return service.repository.Sources(ctx, workspaceID, trackingID)
 }
 
-func (service *Service) Countries(ctx context.Context, trackingID string) ([]Country, error) {
+func (service *Service) Countries(ctx context.Context, workspaceID, trackingID string) ([]Country, error) {
+	if workspaceID == "" {
+		return []Country{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
 	if err := validateTrackingFilter(trackingID); err != nil {
 		return []Country{}, &ValidationError{err: err}
 	}
-	return service.repository.Countries(ctx, trackingID)
+	return service.repository.Countries(ctx, workspaceID, trackingID)
 }
 
-func (service *Service) Devices(ctx context.Context, trackingID string) (Devices, error) {
+func (service *Service) Devices(ctx context.Context, workspaceID, trackingID string) (Devices, error) {
+	if workspaceID == "" {
+		return Devices{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
 	if err := validateTrackingFilter(trackingID); err != nil {
 		return Devices{}, &ValidationError{err: err}
 	}
-	return service.repository.Devices(ctx, trackingID)
+	return service.repository.Devices(ctx, workspaceID, trackingID)
 }
 
-func (service *Service) Realtime(ctx context.Context, trackingID string) (Realtime, error) {
+func (service *Service) Realtime(ctx context.Context, workspaceID, trackingID string) (Realtime, error) {
+	if workspaceID == "" {
+		return Realtime{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
 	if err := validateTrackingFilter(trackingID); err != nil {
 		return Realtime{}, &ValidationError{err: err}
 	}
-	return service.repository.Realtime(ctx, trackingID)
+	return service.repository.Realtime(ctx, workspaceID, trackingID)
 }
 
 func validateTrackingFilter(trackingID string) error {

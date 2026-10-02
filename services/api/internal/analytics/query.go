@@ -73,13 +73,22 @@ type Realtime struct {
 // to count as online. Matches REALTIME_WINDOW_MINUTES in .env.example.
 const realtimeWindow = "5 minutes"
 
-// resolveProjectID maps a public tracking ID to the internal project UUID.
-// Reads are allowed on disabled projects; only unknown IDs report
-// ErrUnknownProject.
-func (repository *PostgresRepository) resolveProjectID(ctx context.Context, trackingID string) (string, error) {
+// resolveProjectID maps a public tracking ID to the internal project UUID
+// within the authenticated workspace. Reads are allowed on disabled
+// projects; unknown IDs — including IDs from other workspaces — report
+// ErrUnknownProject so workspace membership is never leaked.
+func (repository *PostgresRepository) resolveProjectID(ctx context.Context, workspaceID, trackingID string) (string, error) {
 	var projectID string
-	err := repository.pool.QueryRow(ctx,
-		`SELECT id::text FROM analytics_projects WHERE tracking_id = $1`, trackingID).Scan(&projectID)
+	var query string
+	var args []any
+	if workspaceID == "" {
+		query = `SELECT id::text FROM analytics_projects WHERE tracking_id = $1`
+		args = []any{trackingID}
+	} else {
+		query = `SELECT id::text FROM analytics_projects WHERE tracking_id = $1 AND workspace_id = $2`
+		args = []any{trackingID, workspaceID}
+	}
+	err := repository.pool.QueryRow(ctx, query, args...).Scan(&projectID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return "", ErrUnknownProject
@@ -89,7 +98,7 @@ func (repository *PostgresRepository) resolveProjectID(ctx context.Context, trac
 	return projectID, nil
 }
 
-func (repository *PostgresRepository) Summary(ctx context.Context, trackingID string) (Summary, error) {
+func (repository *PostgresRepository) Summary(ctx context.Context, workspaceID, trackingID string) (Summary, error) {
 	var summary Summary
 
 	pageViewsQuery := `SELECT COUNT(*), COUNT(DISTINCT visitor_id) FROM analytics_page_views WHERE is_bot = FALSE`
@@ -100,7 +109,7 @@ func (repository *PostgresRepository) Summary(ctx context.Context, trackingID st
 
 	var args []any
 	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
 		if err != nil {
 			return summary, err
 		}
@@ -120,13 +129,13 @@ func (repository *PostgresRepository) Summary(ctx context.Context, trackingID st
 	return summary, nil
 }
 
-func (repository *PostgresRepository) Traffic(ctx context.Context, trackingID string, days int) ([]TrafficPoint, error) {
+func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, trackingID string, days int) ([]TrafficPoint, error) {
 	points := []TrafficPoint{}
 
 	projectFilter := ""
 	args := []any{days}
 	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
 		if err != nil {
 			return points, err
 		}
@@ -165,14 +174,14 @@ func (repository *PostgresRepository) Traffic(ctx context.Context, trackingID st
 	return points, nil
 }
 
-func (repository *PostgresRepository) TopPages(ctx context.Context, trackingID string, limit int) ([]TopPage, error) {
+func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit int) ([]TopPage, error) {
 	pages := []TopPage{}
 
 	query := `SELECT path, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS unique_visitors
 		FROM analytics_page_views WHERE is_bot = FALSE`
 	var args []any
 	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
 		if err != nil {
 			return pages, err
 		}
@@ -209,14 +218,14 @@ func (repository *PostgresRepository) TopPages(ctx context.Context, trackingID s
 // Sources aggregates non-bot page views by traffic source. Raw
 // referrer/UTM groups come from PostgreSQL and are classified in Go
 // (ClassifySource), so known hosts collapse to friendly names.
-func (repository *PostgresRepository) Sources(ctx context.Context, trackingID string) ([]Source, error) {
+func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, trackingID string) ([]Source, error) {
 	sources := []Source{}
 
 	query := `SELECT COALESCE(referrer, ''), COALESCE(utm_source, ''), COUNT(*), COUNT(DISTINCT visitor_id)
 		FROM analytics_page_views WHERE is_bot = FALSE`
 	var args []any
 	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
 		if err != nil {
 			return sources, err
 		}
@@ -267,14 +276,14 @@ func (repository *PostgresRepository) Sources(ctx context.Context, trackingID st
 
 // Countries aggregates non-bot page views by country code.
 // Rows without geography (NullGeoResolver era) collapse to "Unknown".
-func (repository *PostgresRepository) Countries(ctx context.Context, trackingID string) ([]Country, error) {
+func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID, trackingID string) ([]Country, error) {
 	countries := []Country{}
 
 	query := `SELECT COALESCE(NULLIF(country, ''), 'Unknown'), COUNT(*), COUNT(DISTINCT visitor_id)
 		FROM analytics_page_views WHERE is_bot = FALSE`
 	var args []any
 	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
 		if err != nil {
 			return countries, err
 		}
@@ -318,13 +327,13 @@ func (repository *PostgresRepository) Countries(ctx context.Context, trackingID 
 }
 
 // Devices aggregates non-bot page views by device type, browser and OS.
-func (repository *PostgresRepository) Devices(ctx context.Context, trackingID string) (Devices, error) {
+func (repository *PostgresRepository) Devices(ctx context.Context, workspaceID, trackingID string) (Devices, error) {
 	var devices Devices
 
 	var projectID string
 	if trackingID != "" {
 		var err error
-		projectID, err = repository.resolveProjectID(ctx, trackingID)
+		projectID, err = repository.resolveProjectID(ctx, workspaceID, trackingID)
 		if err != nil {
 			return devices, err
 		}
@@ -404,13 +413,13 @@ func (repository *PostgresRepository) breakdown(ctx context.Context, column, pro
 
 // Realtime reports visitors seen within the activity window, plus the
 // pages they were last seen on. Bots are excluded.
-func (repository *PostgresRepository) Realtime(ctx context.Context, trackingID string) (Realtime, error) {
+func (repository *PostgresRepository) Realtime(ctx context.Context, workspaceID, trackingID string) (Realtime, error) {
 	realtime := Realtime{Pages: []RealtimePage{}}
 
 	filter := `occurred_at >= NOW() - INTERVAL '` + realtimeWindow + `' AND is_bot = FALSE`
 	var args []any
 	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, trackingID)
+		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
 		if err != nil {
 			return realtime, err
 		}

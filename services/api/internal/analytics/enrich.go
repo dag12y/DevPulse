@@ -27,6 +27,8 @@ type Enrichment struct {
 type RequestMeta struct {
 	UserAgent string
 	ClientIP  string
+	Origin    string
+	Referer   string
 }
 
 // GeoResolver maps a client IP to approximate geography. The null

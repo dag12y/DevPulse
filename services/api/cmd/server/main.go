@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/dag12y/devpulse/internal/analytics"
+	"github.com/dag12y/devpulse/internal/auth"
 	"github.com/dag12y/devpulse/internal/config"
 	"github.com/dag12y/devpulse/internal/database"
 	internalhttp "github.com/dag12y/devpulse/internal/http"
 	"github.com/dag12y/devpulse/internal/projects"
+	"github.com/dag12y/devpulse/internal/workspaces"
 )
 
 func main() {
@@ -29,8 +31,17 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	workspaceRepository := workspaces.NewRepository(db.Pool)
+	workspaceHandler := workspaces.NewHandler(workspaceRepository)
 	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
 	analyticsHandler := analytics.NewHandler(analytics.NewService(analytics.NewRepository(db.Pool)))
+
+	readAuth := func(next http.HandlerFunc) http.HandlerFunc {
+		return auth.RequireAuth(workspaceRepository, false, next).ServeHTTP
+	}
+	writeAuth := func(next http.HandlerFunc) http.HandlerFunc {
+		return auth.RequireAuth(workspaceRepository, true, next).ServeHTTP
+	}
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -54,19 +65,21 @@ func main() {
 		w.Write([]byte(`{"status":"ok","database":"connected"}`))
 	})
 
-	mux.HandleFunc("POST /v1/analytics/projects", projectHandler.Create)
-	mux.HandleFunc("GET /v1/analytics/projects", projectHandler.List)
-	mux.HandleFunc("GET /v1/analytics/projects/{id}", projectHandler.Get)
-	mux.HandleFunc("PATCH /v1/analytics/projects/{id}", projectHandler.Update)
-	mux.HandleFunc("DELETE /v1/analytics/projects/{id}", projectHandler.Delete)
+	mux.HandleFunc("POST /v1/analytics/projects", writeAuth(projectHandler.Create))
+	mux.HandleFunc("GET /v1/analytics/projects", readAuth(projectHandler.List))
+	mux.HandleFunc("GET /v1/analytics/projects/{id}", readAuth(projectHandler.Get))
+	mux.HandleFunc("PATCH /v1/analytics/projects/{id}", writeAuth(projectHandler.Update))
+	mux.HandleFunc("DELETE /v1/analytics/projects/{id}", writeAuth(projectHandler.Delete))
 	mux.HandleFunc("POST /v1/analytics/events", analyticsHandler.Ingest)
-	mux.HandleFunc("GET /v1/analytics/summary", analyticsHandler.Summary)
-	mux.HandleFunc("GET /v1/analytics/traffic", analyticsHandler.Traffic)
-	mux.HandleFunc("GET /v1/analytics/pages", analyticsHandler.TopPages)
-	mux.HandleFunc("GET /v1/analytics/sources", analyticsHandler.Sources)
-	mux.HandleFunc("GET /v1/analytics/countries", analyticsHandler.Countries)
-	mux.HandleFunc("GET /v1/analytics/devices", analyticsHandler.Devices)
-	mux.HandleFunc("GET /v1/analytics/realtime", analyticsHandler.Realtime)
+	mux.HandleFunc("GET /v1/analytics/summary", readAuth(analyticsHandler.Summary))
+	mux.HandleFunc("GET /v1/analytics/traffic", readAuth(analyticsHandler.Traffic))
+	mux.HandleFunc("GET /v1/analytics/pages", readAuth(analyticsHandler.TopPages))
+	mux.HandleFunc("GET /v1/analytics/sources", readAuth(analyticsHandler.Sources))
+	mux.HandleFunc("GET /v1/analytics/countries", readAuth(analyticsHandler.Countries))
+	mux.HandleFunc("GET /v1/analytics/devices", readAuth(analyticsHandler.Devices))
+	mux.HandleFunc("GET /v1/analytics/realtime", readAuth(analyticsHandler.Realtime))
+	mux.HandleFunc("POST /v1/workspaces/bootstrap", workspaceHandler.Bootstrap)
+	mux.HandleFunc("POST /v1/workspaces/keys", writeAuth(workspaceHandler.CreateKey))
 
 	addr := ":" + cfg.APIPort
 

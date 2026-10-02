@@ -21,16 +21,19 @@ func NewRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
 
-func (repository *PostgresRepository) Ingest(ctx context.Context, event Event) error {
+func (repository *PostgresRepository) Ingest(ctx context.Context, event Event, originHost string) error {
 	tx, err := repository.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin event transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	projectID, err := projectForTrackingID(ctx, tx, event.ProjectID)
+	projectID, allowedDomains, err := projectForTrackingID(ctx, tx, event.ProjectID)
 	if err != nil {
 		return err
+	}
+	if !AllowedHost(originHost, allowedDomains) {
+		return ErrOriginNotAllowed
 	}
 
 	var duplicate bool
@@ -76,20 +79,21 @@ func (repository *PostgresRepository) Ingest(ctx context.Context, event Event) e
 	return nil
 }
 
-func projectForTrackingID(ctx context.Context, tx pgx.Tx, trackingID string) (string, error) {
+func projectForTrackingID(ctx context.Context, tx pgx.Tx, trackingID string) (string, []string, error) {
 	var projectID string
 	var enabled bool
-	err := tx.QueryRow(ctx, `SELECT id::text, enabled FROM analytics_projects WHERE tracking_id = $1`, trackingID).Scan(&projectID, &enabled)
+	var allowedDomains []string
+	err := tx.QueryRow(ctx, `SELECT id::text, enabled, allowed_domains FROM analytics_projects WHERE tracking_id = $1`, trackingID).Scan(&projectID, &enabled, &allowedDomains)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrUnknownProject
+		return "", nil, ErrUnknownProject
 	}
 	if err != nil {
-		return "", fmt.Errorf("find project: %w", err)
+		return "", nil, fmt.Errorf("find project: %w", err)
 	}
 	if !enabled {
-		return "", ErrDisabledProject
+		return "", nil, ErrDisabledProject
 	}
-	return projectID, nil
+	return projectID, allowedDomains, nil
 }
 
 func upsertVisitor(ctx context.Context, tx pgx.Tx, projectID string, event Event) (string, error) {

@@ -26,6 +26,7 @@ var (
 
 type Project struct {
 	ID             string    `json:"id"`
+	WorkspaceID    string    `json:"workspace_id"`
 	Name           string    `json:"name"`
 	TrackingID     string    `json:"tracking_id"`
 	AllowedDomains []string  `json:"allowed_domains"`

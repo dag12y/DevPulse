@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/dag12y/devpulse/internal/auth"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -21,6 +22,11 @@ func NewHandler(repository Repository) *Handler {
 }
 
 func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	var input CreateInput
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -39,7 +45,7 @@ func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := handler.repository.Create(r.Context(), input, trackingID)
+		project, err := handler.repository.Create(r.Context(), workspaceID, input, trackingID)
 		if errors.Is(err, ErrConflict) {
 			continue
 		}
@@ -57,7 +63,12 @@ func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) List(w http.ResponseWriter, r *http.Request) {
-	projects, err := handler.repository.List(r.Context())
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	projects, err := handler.repository.List(r.Context(), workspaceID)
 	if err != nil {
 		log.Printf("list projects: %v", err)
 		writeError(w, http.StatusInternalServerError, "unable to list projects")
@@ -67,12 +78,17 @@ func (handler *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id, ok := projectID(w, r)
 	if !ok {
 		return
 	}
 
-	project, err := handler.repository.Get(r.Context(), id)
+	project, err := handler.repository.Get(r.Context(), workspaceID, id)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
@@ -86,6 +102,11 @@ func (handler *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id, ok := projectID(w, r)
 	if !ok {
 		return
@@ -101,7 +122,7 @@ func (handler *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := handler.repository.Update(r.Context(), id, input)
+	project, err := handler.repository.Update(r.Context(), workspaceID, id, input)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
@@ -115,12 +136,17 @@ func (handler *Handler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id, ok := projectID(w, r)
 	if !ok {
 		return
 	}
 
-	if err := handler.repository.Delete(r.Context(), id); err != nil {
+	if err := handler.repository.Delete(r.Context(), workspaceID, id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, "project not found")
 			return

@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+
+	"github.com/dag12y/devpulse/internal/auth"
 )
 
 const maxRequestBodyBytes = 64 << 10
@@ -34,12 +36,16 @@ func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 	if err := handler.service.Ingest(r.Context(), event, RequestMeta{
 		UserAgent: r.UserAgent(),
 		ClientIP:  ClientIP(r),
+		Origin:    r.Header.Get("Origin"),
+		Referer:   r.Header.Get("Referer"),
 	}); err != nil {
 		switch {
 		case errors.Is(err, ErrUnknownProject):
 			writeError(w, http.StatusNotFound, "project not found")
 		case errors.Is(err, ErrDisabledProject):
 			writeError(w, http.StatusForbidden, "project is disabled")
+		case errors.Is(err, ErrOriginNotAllowed):
+			writeError(w, http.StatusForbidden, "origin not allowed for this project")
 		case errors.Is(err, ErrDuplicateEvent):
 			writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
 		default:
@@ -57,7 +63,12 @@ func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Summary(w http.ResponseWriter, r *http.Request) {
-	summary, err := handler.service.Summary(r.Context(), r.URL.Query().Get("project_id"))
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	summary, err := handler.service.Summary(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
 	if err != nil {
 		writeQueryError(w, "load summary", err)
 		return
@@ -66,11 +77,16 @@ func (handler *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Traffic(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	days, ok := queryInt(w, r, "days", 30)
 	if !ok {
 		return
 	}
-	points, err := handler.service.Traffic(r.Context(), r.URL.Query().Get("project_id"), days)
+	points, err := handler.service.Traffic(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load traffic", err)
 		return
@@ -79,11 +95,16 @@ func (handler *Handler) Traffic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	limit, ok := queryInt(w, r, "limit", 20)
 	if !ok {
 		return
 	}
-	pages, err := handler.service.TopPages(r.Context(), r.URL.Query().Get("project_id"), limit)
+	pages, err := handler.service.TopPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit)
 	if err != nil {
 		writeQueryError(w, "load top pages", err)
 		return
@@ -92,7 +113,12 @@ func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
-	sources, err := handler.service.Sources(r.Context(), r.URL.Query().Get("project_id"))
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	sources, err := handler.service.Sources(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
 	if err != nil {
 		writeQueryError(w, "load sources", err)
 		return
@@ -101,7 +127,12 @@ func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Countries(w http.ResponseWriter, r *http.Request) {
-	countries, err := handler.service.Countries(r.Context(), r.URL.Query().Get("project_id"))
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	countries, err := handler.service.Countries(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
 	if err != nil {
 		writeQueryError(w, "load countries", err)
 		return
@@ -110,7 +141,12 @@ func (handler *Handler) Countries(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Devices(w http.ResponseWriter, r *http.Request) {
-	devices, err := handler.service.Devices(r.Context(), r.URL.Query().Get("project_id"))
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	devices, err := handler.service.Devices(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
 	if err != nil {
 		writeQueryError(w, "load devices", err)
 		return
@@ -119,7 +155,12 @@ func (handler *Handler) Devices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *Handler) Realtime(w http.ResponseWriter, r *http.Request) {
-	realtime, err := handler.service.Realtime(r.Context(), r.URL.Query().Get("project_id"))
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	realtime, err := handler.service.Realtime(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
 	if err != nil {
 		writeQueryError(w, "load realtime", err)
 		return
