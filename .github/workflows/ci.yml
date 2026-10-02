@@ -1,0 +1,86 @@
+# DevPulse CI: vet, format, unit + Postgres integration tests, tracker
+# checks, dashboard lint/build, and the production API image build.
+# The vulnerability scan is advisory (continue-on-error) until the
+# baseline findings are remediated; everything else gates merges.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go:
+    name: Go API
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/devpulse_test?sslmode=disable
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/api/go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Create test database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE devpulse_test;"
+      - name: Test with race detector
+        run: go test -race -count=1 ./...
+      - name: Vulnerability scan (advisory)
+        continue-on-error: true
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  web:
+    name: Tracker and dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Tracker typecheck
+        run: pnpm --filter @devpulse/tracker typecheck
+      - name: Tracker tests
+        run: pnpm --filter @devpulse/tracker test
+      - name: Tracker production bundle
+        run: pnpm --filter @devpulse/tracker build
+      - name: Dashboard lint
+        run: pnpm --filter dashboard lint
+      - name: Dashboard production build
+        run: pnpm --filter dashboard build
+
+  docker:
+    name: API image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -f services/api/Dockerfile -t devpulse-api:ci services/api

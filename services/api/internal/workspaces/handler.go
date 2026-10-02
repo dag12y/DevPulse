@@ -72,12 +72,12 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"workspace": workspace,
 		"api_key": map[string]any{
-			"id":           key.ID,
-			"name":         key.Name,
-			"key_prefix":   key.Prefix,
-			"role":         key.Role,
-			"api_key":      generated.Raw,
-			"warning":      "Store this key now. It is shown exactly once.",
+			"id":         key.ID,
+			"name":       key.Name,
+			"key_prefix": key.Prefix,
+			"role":       key.Role,
+			"api_key":    generated.Raw,
+			"warning":    "Store this key now. It is shown exactly once.",
 		},
 	})
 }

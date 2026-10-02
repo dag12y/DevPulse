@@ -108,10 +108,10 @@ func TestIngestMapsProjectAndDuplicateErrors(t *testing.T) {
 		err    error
 		status int
 	}{
-		"unknown project":     {ErrUnknownProject, http.StatusNotFound},
-		"disabled project":    {ErrDisabledProject, http.StatusForbidden},
-		"origin not allowed":  {ErrOriginNotAllowed, http.StatusForbidden},
-		"duplicate event":     {ErrDuplicateEvent, http.StatusAccepted},
+		"unknown project":    {ErrUnknownProject, http.StatusNotFound},
+		"disabled project":   {ErrDisabledProject, http.StatusForbidden},
+		"origin not allowed": {ErrOriginNotAllowed, http.StatusForbidden},
+		"duplicate event":    {ErrDuplicateEvent, http.StatusAccepted},
 	} {
 		t.Run(name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()

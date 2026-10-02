@@ -232,7 +232,9 @@ func TestUpdateProjectNotFound(t *testing.T) {
 
 func TestRepositoryErrorsAreNotExposed(t *testing.T) {
 	handler := NewHandler(&stubRepository{
-		get: func(context.Context, string, string) (*Project, error) { return nil, errors.New("database connection refused") },
+		get: func(context.Context, string, string) (*Project, error) {
+			return nil, errors.New("database connection refused")
+		},
 	})
 	request := withWorkspace(httptest.NewRequest(http.MethodGet, "/v1/analytics/projects/"+testProjectID, nil))
 	request.SetPathValue("id", testProjectID)
