@@ -10,6 +10,7 @@ type Config struct {
 	APIPort                  string
 	DatabaseURL              string
 	RetentionIntervalMinutes int
+	GeoIPDBPath              string
 }
 
 func Load() Config {
@@ -18,6 +19,7 @@ func Load() Config {
 		APIPort:                  getEnv("API_PORT", "8080"),
 		DatabaseURL:              os.Getenv("DATABASE_URL"),
 		RetentionIntervalMinutes: getIntEnv("RETENTION_INTERVAL_MINUTES", 60),
+		GeoIPDBPath:              os.Getenv("GEOIP_DB_PATH"),
 	}
 }
 

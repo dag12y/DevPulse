@@ -32,7 +32,13 @@ func (err *ValidationError) Error() string {
 }
 
 func NewService(repository Repository) *Service {
-	return &Service{repository: repository, now: time.Now, geo: NullGeoResolver{}}
+	return NewServiceWithGeo(repository, NullGeoResolver{})
+}
+
+// NewServiceWithGeo injects a GeoIP resolver (MaxMind in production).
+// Tests that need deterministic geography pass their own resolver.
+func NewServiceWithGeo(repository Repository, geo GeoResolver) *Service {
+	return &Service{repository: repository, now: time.Now, geo: geo}
 }
 
 func (service *Service) Ingest(ctx context.Context, event Event, meta RequestMeta) error {

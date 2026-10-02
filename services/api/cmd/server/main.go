@@ -40,7 +40,20 @@ func main() {
 	workspaceRepository := workspaces.NewRepository(db.Pool)
 	workspaceHandler := workspaces.NewHandler(workspaceRepository)
 	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
-	analyticsHandler := analytics.NewHandler(analytics.NewService(analytics.NewRepository(db.Pool)))
+
+	var geo analytics.GeoResolver = analytics.NullGeoResolver{}
+	if cfg.GeoIPDBPath != "" {
+		maxMind, err := analytics.OpenMaxMind(cfg.GeoIPDBPath)
+		if err != nil {
+			log.Fatalf("GeoIP database failed: %v", err)
+		}
+		defer maxMind.Close()
+		geo = maxMind
+		log.Printf("GeoIP enrichment enabled (%s)", cfg.GeoIPDBPath)
+	} else {
+		log.Printf("GEOIP_DB_PATH unset: geography will be reported as Unknown")
+	}
+	analyticsHandler := analytics.NewHandler(analytics.NewServiceWithGeo(analytics.NewRepository(db.Pool), geo))
 
 	readAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		return auth.RequireAuth(workspaceRepository, false, next).ServeHTTP

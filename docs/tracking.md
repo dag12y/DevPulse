@@ -27,6 +27,25 @@ The initial MVP will primarily track page views. Each event may include:
 
 The server may enrich an event with country, region, device type, browser, operating system, and bot status.
 
+## Geographic Detection
+
+Country (ISO code) and region (subdivision name) come from a MaxMind City
+database (GeoLite2-City or GeoIP2-City) when configured. The request IP is
+used transiently for the lookup and never stored — see `docs/privacy.md`.
+
+Setup:
+
+1. Download `GeoLite2-City.mmdb` (free MaxMind account + license key):
+   `https://www.maxmind.com/en/geolite2/signup`
+2. Place it at `./geoip/GeoLite2-City.mmdb` (gitignored).
+3. Set `GEOIP_DB_PATH=/geoip/GeoLite2-City.mmdb` (Docker) or the local
+   path when running the API directly.
+4. Restart the API. Startup logs confirm `GeoIP enrichment enabled`;
+   without it, geography reports as `Unknown`.
+
+Private, loopback, and unresolvable addresses always yield empty
+geography rather than an error, so local development keeps working.
+
 ## Single-Page Applications
 
 The tracker should detect `pushState`, `replaceState`, and `popstate`. It should send a new page view when the URL changes while avoiding duplicates.

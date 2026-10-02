@@ -30,3 +30,6 @@ trask.md
 task.md
 index.html
 analytics.demo.js
+
+# Local MaxMind database (see docs/tracking.md)
+/geoip/
