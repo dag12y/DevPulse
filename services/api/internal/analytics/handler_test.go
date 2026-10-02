@@ -16,12 +16,12 @@ const testWorkspaceID = "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380b22"
 
 type stubRepository struct {
 	ingest    func(context.Context, Event, string) error
-	summary   func(context.Context, string, string) (Summary, error)
-	traffic   func(context.Context, string, string, int) ([]TrafficPoint, error)
-	topPages  func(context.Context, string, string, int) ([]TopPage, error)
-	sources   func(context.Context, string, string) ([]Source, error)
-	countries func(context.Context, string, string) ([]Country, error)
-	devices   func(context.Context, string, string) (Devices, error)
+	summary   func(context.Context, string, string, int, time.Time) (Summary, error)
+	traffic   func(context.Context, string, string, int, time.Time) ([]TrafficPoint, error)
+	topPages  func(context.Context, string, string, int, int, time.Time) ([]TopPage, error)
+	sources   func(context.Context, string, string, int, time.Time) ([]Source, error)
+	countries func(context.Context, string, string, int, time.Time) ([]Country, error)
+	devices   func(context.Context, string, string, int, time.Time) (Devices, error)
 	realtime  func(context.Context, string, string) (Realtime, error)
 }
 
@@ -29,28 +29,28 @@ func (stub *stubRepository) Ingest(ctx context.Context, event Event, originHost 
 	return stub.ingest(ctx, event, originHost)
 }
 
-func (stub *stubRepository) Summary(ctx context.Context, workspaceID, trackingID string) (Summary, error) {
-	return stub.summary(ctx, workspaceID, trackingID)
+func (stub *stubRepository) Summary(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Summary, error) {
+	return stub.summary(ctx, workspaceID, trackingID, days, now)
 }
 
-func (stub *stubRepository) Traffic(ctx context.Context, workspaceID, trackingID string, days int) ([]TrafficPoint, error) {
-	return stub.traffic(ctx, workspaceID, trackingID, days)
+func (stub *stubRepository) Traffic(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]TrafficPoint, error) {
+	return stub.traffic(ctx, workspaceID, trackingID, days, now)
 }
 
-func (stub *stubRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit int) ([]TopPage, error) {
-	return stub.topPages(ctx, workspaceID, trackingID, limit)
+func (stub *stubRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit, days int, now time.Time) ([]TopPage, error) {
+	return stub.topPages(ctx, workspaceID, trackingID, limit, days, now)
 }
 
-func (stub *stubRepository) Sources(ctx context.Context, workspaceID, trackingID string) ([]Source, error) {
-	return stub.sources(ctx, workspaceID, trackingID)
+func (stub *stubRepository) Sources(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Source, error) {
+	return stub.sources(ctx, workspaceID, trackingID, days, now)
 }
 
-func (stub *stubRepository) Countries(ctx context.Context, workspaceID, trackingID string) ([]Country, error) {
-	return stub.countries(ctx, workspaceID, trackingID)
+func (stub *stubRepository) Countries(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Country, error) {
+	return stub.countries(ctx, workspaceID, trackingID, days, now)
 }
 
-func (stub *stubRepository) Devices(ctx context.Context, workspaceID, trackingID string) (Devices, error) {
-	return stub.devices(ctx, workspaceID, trackingID)
+func (stub *stubRepository) Devices(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Devices, error) {
+	return stub.devices(ctx, workspaceID, trackingID, days, now)
 }
 
 func (stub *stubRepository) Realtime(ctx context.Context, workspaceID, trackingID string) (Realtime, error) {
@@ -218,13 +218,13 @@ func TestIngestPassesOriginHost(t *testing.T) {
 func queryHandler() *Handler {
 	return NewHandler(NewService(&stubRepository{
 		ingest: func(context.Context, Event, string) error { return nil },
-		summary: func(_ context.Context, workspaceID, _ string) (Summary, error) {
+		summary: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) (Summary, error) {
 			if workspaceID != testWorkspaceID {
 				return Summary{}, ErrUnknownProject
 			}
 			return Summary{TotalPageViews: 10, UniqueVisitors: 4, Sessions: 5, BounceRate: 0.2, AvgSessionDuration: 60}, nil
 		},
-		traffic: func(_ context.Context, workspaceID, _ string, days int) ([]TrafficPoint, error) {
+		traffic: func(_ context.Context, workspaceID, _ string, days int, _ time.Time) ([]TrafficPoint, error) {
 			if workspaceID != testWorkspaceID {
 				return []TrafficPoint{}, ErrUnknownProject
 			}
@@ -233,25 +233,25 @@ func queryHandler() *Handler {
 			}
 			return []TrafficPoint{{Date: "2026-09-30", PageViews: 3, Visitors: 2}}, nil
 		},
-		topPages: func(_ context.Context, workspaceID, _ string, _ int) ([]TopPage, error) {
+		topPages: func(_ context.Context, workspaceID, _ string, _, _ int, _ time.Time) ([]TopPage, error) {
 			if workspaceID != testWorkspaceID {
 				return []TopPage{}, ErrUnknownProject
 			}
 			return []TopPage{{Path: "/about", Views: 7, UniqueVisitors: 5}}, nil
 		},
-		sources: func(_ context.Context, workspaceID, _ string) ([]Source, error) {
+		sources: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) ([]Source, error) {
 			if workspaceID != testWorkspaceID {
 				return []Source{}, ErrUnknownProject
 			}
 			return []Source{{Source: "Google", Category: "Organic Search", PageViews: 7, Visitors: 5, Percentage: 70}}, nil
 		},
-		countries: func(_ context.Context, workspaceID, _ string) ([]Country, error) {
+		countries: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) ([]Country, error) {
 			if workspaceID != testWorkspaceID {
 				return []Country{}, ErrUnknownProject
 			}
 			return []Country{{Country: "ET", PageViews: 7, Visitors: 5, Percentage: 70}}, nil
 		},
-		devices: func(_ context.Context, workspaceID, _ string) (Devices, error) {
+		devices: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) (Devices, error) {
 			if workspaceID != testWorkspaceID {
 				return Devices{}, ErrUnknownProject
 			}
@@ -321,6 +321,35 @@ func TestTrafficRejectsInvalidDays(t *testing.T) {
 		queryHandler().Traffic(recorder, authedQuery(target))
 		if recorder.Code != http.StatusBadRequest {
 			t.Fatalf("target=%s status=%d body=%s", target, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestAllReportsRejectInvalidDays(t *testing.T) {
+	handler := queryHandler()
+	call := func(path string) int {
+		recorder := httptest.NewRecorder()
+		req := authedQuery(path + "?days=400")
+		switch {
+		case path == "/v1/analytics/summary":
+			handler.Summary(recorder, req)
+		case path == "/v1/analytics/pages":
+			handler.TopPages(recorder, req)
+		case path == "/v1/analytics/sources":
+			handler.Sources(recorder, req)
+		case path == "/v1/analytics/countries":
+			handler.Countries(recorder, req)
+		case path == "/v1/analytics/devices":
+			handler.Devices(recorder, req)
+		}
+		return recorder.Code
+	}
+	for _, path := range []string{
+		"/v1/analytics/summary", "/v1/analytics/pages", "/v1/analytics/sources",
+		"/v1/analytics/countries", "/v1/analytics/devices",
+	} {
+		if status := call(path); status != http.StatusBadRequest {
+			t.Fatalf("path=%s status=%d", path, status)
 		}
 	}
 }

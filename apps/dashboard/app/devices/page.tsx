@@ -38,7 +38,7 @@ function BreakdownTable({ title, entries }: { title: string; entries: DeviceBrea
 }
 
 export default function DevicesPage() {
-  const { selectedTrackingId } = useProject();
+  const { selectedTrackingId, days } = useProject();
   const [devices, setDevices] = useState<DevicesStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,11 +50,11 @@ export default function DevicesPage() {
     }
     setLoading(true);
     setError(null);
-    getDevices(selectedTrackingId)
+    getDevices(selectedTrackingId, days)
       .then(setDevices)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId]);
+  }, [selectedTrackingId, days]);
 
   if (!selectedTrackingId && !loading) {
     return (

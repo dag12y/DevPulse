@@ -22,9 +22,9 @@ export default function OverviewPage() {
     setLoading(true);
     setError(null);
     Promise.all([
-      getSummary(selectedTrackingId),
+      getSummary(selectedTrackingId, days),
       getTraffic(days, selectedTrackingId),
-      getTopPages(10, selectedTrackingId),
+      getTopPages(10, selectedTrackingId, days),
     ])
       .then(([s, t, p]) => {
         setSummary(s);
@@ -73,10 +73,35 @@ export default function OverviewPage() {
       <ReportHeader title="Overview" />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Page Views" value={summary?.total_page_views ?? 0} />
-        <MetricCard label="Unique Visitors" value={summary?.unique_visitors ?? 0} />
-        <MetricCard label="Sessions" value={summary?.sessions ?? 0} />
-        <MetricCard label="Bounce Rate" value={`${((summary?.bounce_rate ?? 0) * 100).toFixed(1)}%`} />
+        <MetricCard
+          label="Page Views"
+          value={summary?.total_page_views ?? 0}
+          change={summary?.page_views_change ?? null}
+          invert={false}
+        />
+        <MetricCard
+          label="Unique Visitors"
+          value={summary?.unique_visitors ?? 0}
+          change={summary?.visitors_change ?? null}
+          invert={false}
+        />
+        <MetricCard
+          label="Sessions"
+          value={summary?.sessions ?? 0}
+          change={summary?.sessions_change ?? null}
+          invert={false}
+        />
+        <MetricCard
+          label="Bounce Rate"
+          value={`${((summary?.bounce_rate ?? 0) * 100).toFixed(1)}%`}
+          change={null}
+          sub={
+            summary != null
+              ? `${formatPoints(summary.bounce_rate_change)} pts vs prior ${summary.days}d`
+              : undefined
+          }
+          invert={false}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -125,13 +150,40 @@ export default function OverviewPage() {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: number | string }) {
+function MetricCard({
+  label,
+  value,
+  change,
+  sub,
+  invert,
+}: {
+  label: string;
+  value: number | string;
+  change: number | null;
+  sub?: string;
+  invert: boolean;
+}) {
+  const positive = (change ?? 0) >= 0;
+  const good = invert ? !positive : positive;
   return (
     <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
       <p className="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
       <p className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
         {typeof value === "number" ? value.toLocaleString() : value}
       </p>
+      {change != null ? (
+        <p className={`text-xs mt-1 ${good ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+          {change >= 0 ? "+" : ""}{change.toFixed(1)}% vs prior period
+        </p>
+      ) : (
+        <p className="text-xs mt-1 text-zinc-400">— no prior baseline</p>
+      )}
+      {sub && <p className="text-xs mt-0.5 text-zinc-500">{sub}</p>}
     </div>
   );
+}
+
+function formatPoints(change: number): string {
+  const sign = change >= 0 ? "+" : "";
+  return `${sign}${(change).toFixed(1)}`;
 }

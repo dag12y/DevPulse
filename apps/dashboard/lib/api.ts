@@ -20,6 +20,15 @@ export interface AnalyticsSummary {
   sessions: number;
   bounce_rate: number;
   avg_session_duration: number;
+  days: number;
+  prev_page_views: number;
+  prev_visitors: number;
+  prev_sessions: number;
+  page_views_change: number | null;
+  visitors_change: number | null;
+  sessions_change: number | null;
+  prev_bounce_rate: number;
+  bounce_rate_change: number;
 }
 
 export interface TrafficData {
@@ -88,28 +97,28 @@ function withProject(path: string, projectId?: string): string {
   return `${path}${separator}project_id=${encodeURIComponent(projectId)}`;
 }
 
-export function getSummary(projectId?: string): Promise<AnalyticsSummary> {
-  return fetchAPI<AnalyticsSummary>(withProject("/v1/analytics/summary", projectId));
+export function getSummary(projectId?: string, days = 30): Promise<AnalyticsSummary> {
+  return fetchAPI<AnalyticsSummary>(withProject(`/v1/analytics/summary?days=${days}`, projectId));
 }
 
 export function getTraffic(days = 30, projectId?: string): Promise<TrafficData[]> {
   return fetchAPI<TrafficData[]>(withProject(`/v1/analytics/traffic?days=${days}`, projectId));
 }
 
-export function getTopPages(limit = 20, projectId?: string): Promise<TopPage[]> {
-  return fetchAPI<TopPage[]>(withProject(`/v1/analytics/pages?limit=${limit}`, projectId));
+export function getTopPages(limit = 20, projectId?: string, days = 30): Promise<TopPage[]> {
+  return fetchAPI<TopPage[]>(withProject(`/v1/analytics/pages?limit=${limit}&days=${days}`, projectId));
 }
 
-export function getSources(projectId?: string): Promise<TrafficSource[]> {
-  return fetchAPI<TrafficSource[]>(withProject("/v1/analytics/sources", projectId));
+export function getSources(projectId?: string, days = 30): Promise<TrafficSource[]> {
+  return fetchAPI<TrafficSource[]>(withProject(`/v1/analytics/sources?days=${days}`, projectId));
 }
 
-export function getCountries(projectId?: string): Promise<CountryStats[]> {
-  return fetchAPI<CountryStats[]>(withProject("/v1/analytics/countries", projectId));
+export function getCountries(projectId?: string, days = 30): Promise<CountryStats[]> {
+  return fetchAPI<CountryStats[]>(withProject(`/v1/analytics/countries?days=${days}`, projectId));
 }
 
-export function getDevices(projectId?: string): Promise<DevicesStats> {
-  return fetchAPI<DevicesStats>(withProject("/v1/analytics/devices", projectId));
+export function getDevices(projectId?: string, days = 30): Promise<DevicesStats> {
+  return fetchAPI<DevicesStats>(withProject(`/v1/analytics/devices?days=${days}`, projectId));
 }
 
 export interface RealtimePage {

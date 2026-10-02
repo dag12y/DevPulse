@@ -7,7 +7,7 @@ import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
 
 export default function PagesPage() {
-  const { selectedTrackingId } = useProject();
+  const { selectedTrackingId, days } = useProject();
   const [pages, setPages] = useState<TopPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,11 +19,11 @@ export default function PagesPage() {
     }
     setLoading(true);
     setError(null);
-    getTopPages(50, selectedTrackingId)
+    getTopPages(50, selectedTrackingId, days)
       .then(setPages)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId]);
+  }, [selectedTrackingId, days]);
 
   if (!selectedTrackingId && !loading) {
     return (

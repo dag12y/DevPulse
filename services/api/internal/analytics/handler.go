@@ -68,7 +68,11 @@ func (handler *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	summary, err := handler.service.Summary(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return
+	}
+	summary, err := handler.service.Summary(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load summary", err)
 		return
@@ -82,7 +86,7 @@ func (handler *Handler) Traffic(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	days, ok := queryInt(w, r, "days", 30)
+	days, ok := queryInt(w, r, "days", DefaultDays)
 	if !ok {
 		return
 	}
@@ -104,7 +108,11 @@ func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pages, err := handler.service.TopPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit)
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return
+	}
+	pages, err := handler.service.TopPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, days)
 	if err != nil {
 		writeQueryError(w, "load top pages", err)
 		return
@@ -118,7 +126,11 @@ func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	sources, err := handler.service.Sources(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return
+	}
+	sources, err := handler.service.Sources(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load sources", err)
 		return
@@ -132,7 +144,11 @@ func (handler *Handler) Countries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	countries, err := handler.service.Countries(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return
+	}
+	countries, err := handler.service.Countries(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load countries", err)
 		return
@@ -146,7 +162,11 @@ func (handler *Handler) Devices(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	devices, err := handler.service.Devices(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return
+	}
+	devices, err := handler.service.Devices(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load devices", err)
 		return

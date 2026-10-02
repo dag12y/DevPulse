@@ -7,7 +7,7 @@ import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
 
 export default function SourcesPage() {
-  const { selectedTrackingId } = useProject();
+  const { selectedTrackingId, days } = useProject();
   const [sources, setSources] = useState<TrafficSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,11 +19,11 @@ export default function SourcesPage() {
     }
     setLoading(true);
     setError(null);
-    getSources(selectedTrackingId)
+    getSources(selectedTrackingId, days)
       .then(setSources)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId]);
+  }, [selectedTrackingId, days]);
 
   if (!selectedTrackingId && !loading) {
     return (

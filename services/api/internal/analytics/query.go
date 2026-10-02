@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -17,6 +18,19 @@ type Summary struct {
 	Sessions           int64   `json:"sessions"`
 	BounceRate         float64 `json:"bounce_rate"`
 	AvgSessionDuration float64 `json:"avg_session_duration"`
+	Days               int     `json:"days"`
+
+	// Previous-window totals cover the days immediately before the
+	// current window. Change fields are nil when the previous window
+	// is empty (no baseline to compare against).
+	PrevPageViews    int64    `json:"prev_page_views"`
+	PrevVisitors     int64    `json:"prev_visitors"`
+	PrevSessions     int64    `json:"prev_sessions"`
+	PageViewsChange  *float64 `json:"page_views_change"`
+	VisitorsChange   *float64 `json:"visitors_change"`
+	SessionsChange   *float64 `json:"sessions_change"`
+	PrevBounceRate   float64  `json:"prev_bounce_rate"`
+	BounceRateChange float64  `json:"bounce_rate_change"`
 }
 
 type TrafficPoint struct {
@@ -73,128 +87,221 @@ type Realtime struct {
 // to count as online. Matches REALTIME_WINDOW_MINUTES in .env.example.
 const realtimeWindow = "5 minutes"
 
-// resolveProjectID maps a public tracking ID to the internal project UUID
+// projectRef identifies the internal project row plus its display
+// timezone for window math.
+type projectRef struct {
+	id       string
+	timezone string
+}
+
+// resolveProject maps a public tracking ID to the internal project UUID
 // within the authenticated workspace. Reads are allowed on disabled
 // projects; unknown IDs — including IDs from other workspaces — report
 // ErrUnknownProject so workspace membership is never leaked.
-func (repository *PostgresRepository) resolveProjectID(ctx context.Context, workspaceID, trackingID string) (string, error) {
-	var projectID string
+func (repository *PostgresRepository) resolveProject(ctx context.Context, workspaceID, trackingID string) (projectRef, error) {
+	var ref projectRef
 	var query string
 	var args []any
 	if workspaceID == "" {
-		query = `SELECT id::text FROM analytics_projects WHERE tracking_id = $1`
+		query = `SELECT id::text, timezone FROM analytics_projects WHERE tracking_id = $1`
 		args = []any{trackingID}
 	} else {
-		query = `SELECT id::text FROM analytics_projects WHERE tracking_id = $1 AND workspace_id = $2`
+		query = `SELECT id::text, timezone FROM analytics_projects WHERE tracking_id = $1 AND workspace_id = $2`
 		args = []any{trackingID, workspaceID}
 	}
-	err := repository.pool.QueryRow(ctx, query, args...).Scan(&projectID)
+	err := repository.pool.QueryRow(ctx, query, args...).Scan(&ref.id, &ref.timezone)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return "", ErrUnknownProject
+			return projectRef{}, ErrUnknownProject
 		}
-		return "", fmt.Errorf("find project: %w", err)
+		return projectRef{}, fmt.Errorf("find project: %w", err)
 	}
-	return projectID, nil
+	return ref, nil
 }
 
-func (repository *PostgresRepository) Summary(ctx context.Context, workspaceID, trackingID string) (Summary, error) {
+// resolveProjectID maps a public tracking ID to the internal project UUID.
+// It exists for ingestion-adjacent lookups that do not need a window.
+func (repository *PostgresRepository) resolveProjectID(ctx context.Context, workspaceID, trackingID string) (string, error) {
+	ref, err := repository.resolveProject(ctx, workspaceID, trackingID)
+	if err != nil {
+		return "", err
+	}
+	return ref.id, nil
+}
+
+// windowFor returns the reporting window for a query: project-local days
+// when a project is selected, UTC otherwise.
+func windowFor(ref projectRef, hasProject bool, now time.Time, days int) Window {
+	if !hasProject {
+		return ResolveWindow(now, "UTC", days)
+	}
+	return ResolveWindow(now, ref.timezone, days)
+}
+
+func (repository *PostgresRepository) Summary(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Summary, error) {
 	var summary Summary
+	summary.Days = days
 
-	pageViewsQuery := `SELECT COUNT(*), COUNT(DISTINCT visitor_id) FROM analytics_page_views WHERE is_bot = FALSE`
-	sessionsQuery := `SELECT COUNT(*),
-		COALESCE(AVG(CASE WHEN is_bounce THEN 1.0 ELSE 0.0 END), 0),
-		COALESCE(AVG(EXTRACT(EPOCH FROM (last_seen_at - started_at))), 0)
-		FROM analytics_sessions WHERE is_bot = FALSE`
-
-	var args []any
-	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
+	var ref projectRef
+	hasProject := trackingID != ""
+	if hasProject {
+		var err error
+		ref, err = repository.resolveProject(ctx, workspaceID, trackingID)
 		if err != nil {
 			return summary, err
 		}
-		pageViewsQuery += ` AND project_id = $1`
-		sessionsQuery += ` AND project_id = $1`
-		args = append(args, projectID)
+	}
+	window := windowFor(ref, hasProject, now, days)
+
+	current, err := repository.summaryWindow(ctx, ref.id, window.Start, window.End)
+	if err != nil {
+		return summary, err
+	}
+	previous, err := repository.summaryWindow(ctx, ref.id, window.PrevStart, window.PrevEnd)
+	if err != nil {
+		return summary, err
 	}
 
-	if err := repository.pool.QueryRow(ctx, pageViewsQuery, args...).Scan(
-		&summary.TotalPageViews, &summary.UniqueVisitors); err != nil {
-		return summary, fmt.Errorf("query page view summary: %w", err)
-	}
-	if err := repository.pool.QueryRow(ctx, sessionsQuery, args...).Scan(
-		&summary.Sessions, &summary.BounceRate, &summary.AvgSessionDuration); err != nil {
-		return summary, fmt.Errorf("query session summary: %w", err)
-	}
+	summary.TotalPageViews = current.pageViews
+	summary.UniqueVisitors = current.visitors
+	summary.Sessions = current.sessions
+	summary.BounceRate = current.bounceRate
+	summary.AvgSessionDuration = current.avgDuration
+	summary.PrevPageViews = previous.pageViews
+	summary.PrevVisitors = previous.visitors
+	summary.PrevSessions = previous.sessions
+	summary.PrevBounceRate = previous.bounceRate
+	summary.PageViewsChange = ChangePct(float64(current.pageViews), float64(previous.pageViews))
+	summary.VisitorsChange = ChangePct(float64(current.visitors), float64(previous.visitors))
+	summary.SessionsChange = ChangePct(float64(current.sessions), float64(previous.sessions))
+	summary.BounceRateChange = (current.bounceRate - previous.bounceRate) * 100
 	return summary, nil
 }
 
-func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, trackingID string, days int) ([]TrafficPoint, error) {
+type summaryCounts struct {
+	pageViews   int64
+	visitors    int64
+	sessions    int64
+	bounceRate  float64
+	avgDuration float64
+}
+
+// summaryWindow aggregates one half-open window. Sessions are counted by
+// started_at (sessions started in the window), so the metric is stable
+// for a rolling window.
+func (repository *PostgresRepository) summaryWindow(ctx context.Context, projectID string, start, end time.Time) (summaryCounts, error) {
+	var counts summaryCounts
+
+	pageViewsQuery := `SELECT COUNT(*), COUNT(DISTINCT visitor_id) FROM analytics_page_views
+		WHERE is_bot = FALSE AND occurred_at >= $1 AND occurred_at < $2`
+	sessionsQuery := `SELECT COUNT(*),
+		COALESCE(AVG(CASE WHEN is_bounce THEN 1.0 ELSE 0.0 END), 0),
+		COALESCE(AVG(EXTRACT(EPOCH FROM (last_seen_at - started_at))), 0)
+		FROM analytics_sessions
+		WHERE is_bot = FALSE AND started_at >= $1 AND started_at < $2`
+
+	pageArgs := []any{start, end}
+	sessionArgs := []any{start, end}
+	if projectID != "" {
+		pageViewsQuery += ` AND project_id = $3`
+		sessionsQuery += ` AND project_id = $3`
+		pageArgs = append(pageArgs, projectID)
+		sessionArgs = append(sessionArgs, projectID)
+	}
+
+	if err := repository.pool.QueryRow(ctx, pageViewsQuery, pageArgs...).Scan(
+		&counts.pageViews, &counts.visitors); err != nil {
+		return counts, fmt.Errorf("query page view summary: %w", err)
+	}
+	if err := repository.pool.QueryRow(ctx, sessionsQuery, sessionArgs...).Scan(
+		&counts.sessions, &counts.bounceRate, &counts.avgDuration); err != nil {
+		return counts, fmt.Errorf("query session summary: %w", err)
+	}
+	return counts, nil
+}
+
+func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]TrafficPoint, error) {
 	points := []TrafficPoint{}
 
-	projectFilter := ""
-	args := []any{days}
-	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
+	var ref projectRef
+	hasProject := trackingID != ""
+	if hasProject {
+		var err error
+		ref, err = repository.resolveProject(ctx, workspaceID, trackingID)
 		if err != nil {
 			return points, err
 		}
-		projectFilter = `AND pv.project_id = $2`
-		args = append(args, projectID)
 	}
+	timezone := SafeTimezone(ref.timezone)
+	window := windowFor(ref, hasProject, now, days)
 
-	rows, err := repository.pool.Query(ctx, `
-		SELECT TO_CHAR(day, 'YYYY-MM-DD') AS date,
-			COUNT(pv.id) AS page_views,
-			COUNT(DISTINCT pv.visitor_id) AS visitors
-		FROM generate_series(
-			CURRENT_DATE - (($1::int - 1) * INTERVAL '1 day'),
-			CURRENT_DATE,
-			INTERVAL '1 day'
-		) AS day
-		LEFT JOIN analytics_page_views pv
-			ON DATE(pv.occurred_at) = day AND pv.is_bot = FALSE `+projectFilter+`
-		GROUP BY day
-		ORDER BY day`, args...)
+	query := `SELECT ((occurred_at AT TIME ZONE $1)::date)::text AS day,
+			COUNT(*), COUNT(DISTINCT visitor_id)
+		FROM analytics_page_views
+		WHERE is_bot = FALSE AND occurred_at >= $2 AND occurred_at < $3`
+	args := []any{timezone, window.Start, window.End}
+	if hasProject {
+		query += ` AND project_id = $4`
+		args = append(args, ref.id)
+	}
+	query += ` GROUP BY 1`
+
+	rows, err := repository.pool.Query(ctx, query, args...)
 	if err != nil {
 		return points, fmt.Errorf("query traffic: %w", err)
 	}
 	defer rows.Close()
 
+	byDay := map[string]TrafficPoint{}
 	for rows.Next() {
 		var point TrafficPoint
 		if err := rows.Scan(&point.Date, &point.PageViews, &point.Visitors); err != nil {
 			return points, fmt.Errorf("scan traffic point: %w", err)
 		}
-		points = append(points, point)
+		byDay[point.Date] = point
 	}
 	if err := rows.Err(); err != nil {
 		return points, fmt.Errorf("iterate traffic points: %w", err)
 	}
+	// Fill days without events so charts share one axis.
+	for _, label := range DayLabels(now, timezone, days) {
+		if point, ok := byDay[label]; ok {
+			points = append(points, point)
+		} else {
+			points = append(points, TrafficPoint{Date: label})
+		}
+	}
 	return points, nil
 }
 
-func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit int) ([]TopPage, error) {
+func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit int, days int, now time.Time) ([]TopPage, error) {
 	pages := []TopPage{}
 
-	query := `SELECT path, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS unique_visitors
-		FROM analytics_page_views WHERE is_bot = FALSE`
-	var args []any
-	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
+	var ref projectRef
+	hasProject := trackingID != ""
+	if hasProject {
+		var err error
+		ref, err = repository.resolveProject(ctx, workspaceID, trackingID)
 		if err != nil {
 			return pages, err
 		}
-		query += ` AND project_id = $1`
-		args = append(args, projectID)
 	}
-	if len(args) == 0 {
-		query += ` GROUP BY path ORDER BY views DESC LIMIT $1`
-		args = append(args, limit)
+	window := windowFor(ref, hasProject, now, days)
+
+	query := `SELECT path, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS unique_visitors
+		FROM analytics_page_views
+		WHERE is_bot = FALSE AND occurred_at >= $1 AND occurred_at < $2`
+	args := []any{window.Start, window.End}
+	if hasProject {
+		query += ` AND project_id = $3`
+		args = append(args, ref.id)
+	}
+	if hasProject {
+		query += ` GROUP BY path ORDER BY views DESC LIMIT $4`
 	} else {
-		query += ` GROUP BY path ORDER BY views DESC LIMIT $2`
-		args = append(args, limit)
+		query += ` GROUP BY path ORDER BY views DESC LIMIT $3`
 	}
+	args = append(args, limit)
 
 	rows, err := repository.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -218,19 +325,27 @@ func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID,
 // Sources aggregates non-bot page views by traffic source. Raw
 // referrer/UTM groups come from PostgreSQL and are classified in Go
 // (ClassifySource), so known hosts collapse to friendly names.
-func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, trackingID string) ([]Source, error) {
+func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Source, error) {
 	sources := []Source{}
 
-	query := `SELECT COALESCE(referrer, ''), COALESCE(utm_source, ''), COUNT(*), COUNT(DISTINCT visitor_id)
-		FROM analytics_page_views WHERE is_bot = FALSE`
-	var args []any
-	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
+	var ref projectRef
+	hasProject := trackingID != ""
+	if hasProject {
+		var err error
+		ref, err = repository.resolveProject(ctx, workspaceID, trackingID)
 		if err != nil {
 			return sources, err
 		}
-		query += ` AND project_id = $1`
-		args = append(args, projectID)
+	}
+	window := windowFor(ref, hasProject, now, days)
+
+	query := `SELECT COALESCE(referrer, ''), COALESCE(utm_source, ''), COUNT(*), COUNT(DISTINCT visitor_id)
+		FROM analytics_page_views
+		WHERE is_bot = FALSE AND occurred_at >= $1 AND occurred_at < $2`
+	args := []any{window.Start, window.End}
+	if hasProject {
+		query += ` AND project_id = $3`
+		args = append(args, ref.id)
 	}
 	query += ` GROUP BY referrer, utm_source`
 
@@ -276,19 +391,27 @@ func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, 
 
 // Countries aggregates non-bot page views by country code.
 // Rows without geography (NullGeoResolver era) collapse to "Unknown".
-func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID, trackingID string) ([]Country, error) {
+func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Country, error) {
 	countries := []Country{}
 
-	query := `SELECT COALESCE(NULLIF(country, ''), 'Unknown'), COUNT(*), COUNT(DISTINCT visitor_id)
-		FROM analytics_page_views WHERE is_bot = FALSE`
-	var args []any
-	if trackingID != "" {
-		projectID, err := repository.resolveProjectID(ctx, workspaceID, trackingID)
+	var ref projectRef
+	hasProject := trackingID != ""
+	if hasProject {
+		var err error
+		ref, err = repository.resolveProject(ctx, workspaceID, trackingID)
 		if err != nil {
 			return countries, err
 		}
-		query += ` AND project_id = $1`
-		args = append(args, projectID)
+	}
+	window := windowFor(ref, hasProject, now, days)
+
+	query := `SELECT COALESCE(NULLIF(country, ''), 'Unknown'), COUNT(*), COUNT(DISTINCT visitor_id)
+		FROM analytics_page_views
+		WHERE is_bot = FALSE AND occurred_at >= $1 AND occurred_at < $2`
+	args := []any{window.Start, window.End}
+	if hasProject {
+		query += ` AND project_id = $3`
+		args = append(args, ref.id)
 	}
 	query += ` GROUP BY 1 ORDER BY COUNT(*) DESC`
 
@@ -327,33 +450,35 @@ func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID
 }
 
 // Devices aggregates non-bot page views by device type, browser and OS.
-func (repository *PostgresRepository) Devices(ctx context.Context, workspaceID, trackingID string) (Devices, error) {
+func (repository *PostgresRepository) Devices(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Devices, error) {
 	var devices Devices
 
-	var projectID string
-	if trackingID != "" {
+	var ref projectRef
+	hasProject := trackingID != ""
+	if hasProject {
 		var err error
-		projectID, err = repository.resolveProjectID(ctx, workspaceID, trackingID)
+		ref, err = repository.resolveProject(ctx, workspaceID, trackingID)
 		if err != nil {
 			return devices, err
 		}
 	}
+	window := windowFor(ref, hasProject, now, days)
 
 	var err error
-	if devices.DeviceTypes, err = repository.breakdown(ctx, "device_type", projectID); err != nil {
+	if devices.DeviceTypes, err = repository.breakdown(ctx, "device_type", ref.id, window.Start, window.End); err != nil {
 		return devices, err
 	}
-	if devices.Browsers, err = repository.breakdown(ctx, "browser", projectID); err != nil {
+	if devices.Browsers, err = repository.breakdown(ctx, "browser", ref.id, window.Start, window.End); err != nil {
 		return devices, err
 	}
-	if devices.OperatingSystems, err = repository.breakdown(ctx, "os", projectID); err != nil {
+	if devices.OperatingSystems, err = repository.breakdown(ctx, "os", ref.id, window.Start, window.End); err != nil {
 		return devices, err
 	}
 	return devices, nil
 }
 
 // breakdown aggregates a single whitelisted dimension column.
-func (repository *PostgresRepository) breakdown(ctx context.Context, column, projectID string) ([]DeviceBreakdown, error) {
+func (repository *PostgresRepository) breakdown(ctx context.Context, column, projectID string, start, end time.Time) ([]DeviceBreakdown, error) {
 	entries := []DeviceBreakdown{}
 
 	var col string
@@ -369,10 +494,11 @@ func (repository *PostgresRepository) breakdown(ctx context.Context, column, pro
 	}
 
 	query := `SELECT ` + col + `, COUNT(*), COUNT(DISTINCT visitor_id)
-		FROM analytics_page_views WHERE is_bot = FALSE`
-	var args []any
+		FROM analytics_page_views
+		WHERE is_bot = FALSE AND occurred_at >= $1 AND occurred_at < $2`
+	args := []any{start, end}
 	if projectID != "" {
-		query += ` AND project_id = $1`
+		query += ` AND project_id = $3`
 		args = append(args, projectID)
 	}
 	query += ` GROUP BY 1 ORDER BY COUNT(*) DESC`

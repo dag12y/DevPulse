@@ -7,7 +7,7 @@ import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
 
 export default function CountriesPage() {
-  const { selectedTrackingId } = useProject();
+  const { selectedTrackingId, days } = useProject();
   const [countries, setCountries] = useState<CountryStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,11 +19,11 @@ export default function CountriesPage() {
     }
     setLoading(true);
     setError(null);
-    getCountries(selectedTrackingId)
+    getCountries(selectedTrackingId, days)
       .then(setCountries)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId]);
+  }, [selectedTrackingId, days]);
 
   if (!selectedTrackingId && !loading) {
     return (
