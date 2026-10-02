@@ -1,72 +1,75 @@
 # DevPulse
 
-DevPulse is a lightweight, privacy-conscious web analytics platform for developers. It will let website owners add a small tracking script and view useful traffic analytics in a simple dashboard.
+DevPulse is a lightweight, privacy-conscious web analytics platform for developers. Website owners add a small tracking script and view traffic analytics in a simple dashboard. No fingerprinting, no cross-site tracking, no ad profiles.
 
 ## Status
 
-The Go API exposes health checks, project CRUD, and analytics event ingestion with CORS enabled. The browser tracker is implemented and produces events compatible with the API. PostgreSQL and the API are defined in Docker Compose. The Next.js dashboard is still the default scaffold — analytics views are planned work.
+Working end to end on `main`:
 
-## Planned Features
+- **Ingestion**: `POST /v1/analytics/events` validates, bot-filters, enriches (device, browser, OS, country/region via MaxMind when configured), and rate-limits per project+IP. The tracker never blocks the host site.
+- **Auth**: workspace API keys (`dpk_…`) and human login sessions (`dps_…`) with owner/admin/viewer roles, workspace isolation on every private route, member management with last-owner guards.
+- **Reports**: summary with previous-period comparison, traffic, top pages, sources, countries, devices, and 15s real-time — all scoped to the selected project, date range (24H/7/30/90D), and project timezone.
+- **Dashboard**: project + workspace switchers (persisted to URL/localStorage), install screen with copyable script tag, login/register/account pages.
+- **Privacy/retention**: raw IPs never stored, per-project retention (30/90/180/365d) enforced hourly by a cleanup worker with observable `retention_runs`.
+- **CI**: vet, gofmt, full Go suite with `-race` (unit + Postgres integration), tracker typecheck/tests/bundle, dashboard lint/build, and production image build.
 
-- Page-view tracking, unique visitors, and sessions
-- New and returning visitors, session duration, and bounce rate
-- Referrers, traffic sources, and UTM campaigns
-- Countries, devices, browsers, operating systems, and screen information
-- Real-time visitors and configurable retention
-- Privacy-conscious, first-party visitor tracking
+## Quickstart
 
-## Technology
+Requirements: Node.js + pnpm, Go, Docker + Docker Compose.
 
-- Dashboard: Next.js, TypeScript, and Tailwind CSS
-- API: Go
-- Data store: PostgreSQL
-- Tooling: pnpm, Docker, and Docker Compose
-
-## Intended Architecture
-
-```text
-Website → browser tracker → Go API → PostgreSQL
-                              ↑        ↓
-                         Dashboard ← aggregated analytics API
+```bash
+cp .env.example .env
+docker compose up -d          # postgres + api (http://localhost:5000)
+pnpm dev                      # dashboard at http://localhost:3000
 ```
 
-For the detailed design, see [architecture.md](docs/architecture.md), [tracking.md](docs/tracking.md), and [privacy.md](docs/privacy.md).
+Create your first account in the dashboard (**Register**), or via the API:
 
-## Repository Layout
+```bash
+curl -X POST localhost:5000/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"choose-12-plus-chars","workspace_name":"My workspace"}'
+# → save the "token", send it as: Authorization: Bearer <token>
+#   plus: X-Workspace-ID: <workspace_id>
+```
+
+Add one tag to your site (see **Install** in the dashboard for your tracking ID):
+
+```html
+<script src="https://analytics.example.com/analytics.js" data-project="dp_xxx" defer></script>
+```
+
+Optional geography: place `GeoLite2-City.mmdb` in `./geoip/` and set `GEOIP_DB_PATH=/geoip/GeoLite2-City.mmdb` (see `docs/tracking.md`). Without it, countries report as `Unknown`.
+
+## Layout
 
 ```text
 apps/dashboard/     Next.js dashboard
-services/api/        Go API
-docs/                Product and technical design notes
-docker-compose.yml   Local PostgreSQL and API services
+packages/tracker/   browser tracker (Tracker API, SPA-aware)
+services/api/       Go API (migrations embed in binary, run at startup)
+docs/               architecture, tracking, privacy notes
+docker-compose.yml  local PostgreSQL + API
 ```
 
-The future tracker package will live in `packages/tracker/`.
+## Testing
 
-## Local Development
+```bash
+cd services/api && go test ./...        # unit tests
+# integration tests need Postgres:
+# TEST_DATABASE_URL=postgres://devpulse:devpulse_dev_password@localhost:5433/devpulse_test?sslmode=disable go test ./...
+pnpm --filter @devpulse/tracker test
+pnpm --filter dashboard lint && pnpm --filter dashboard build
+```
 
-### Requirements
+Pushes to `main` run all of this in GitHub Actions (`.github/workflows/ci.yml`).
 
-- Node.js and pnpm
-- Go
-- Docker and Docker Compose
-
-### Start services
-
-1. Copy `.env.example` to `.env` and adjust values if necessary.
-2. Start PostgreSQL: `docker compose up -d postgres`
-3. Start the API: `docker compose up -d api`
-4. Start the dashboard: `pnpm dev`
-
-The dashboard runs at <http://localhost:3000>. The API health endpoint is available at <http://localhost:5000/health>.
-
-## Development Principles
+## Principles
 
 - Privacy by default and data minimization
 - Simple architecture and reliable tracking
-- Fast analytics ingestion and useful metrics
+- Fast aggregated queries, trustworthy numbers
 - Self-hosting and developer control
 
 ## License
 
-TBD
+MIT — see [LICENSE](LICENSE).
