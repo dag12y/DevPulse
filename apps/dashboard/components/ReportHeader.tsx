@@ -31,7 +31,7 @@ export default function ReportHeader({ title, showDateRange = true }: ReportHead
           <p className="font-medium">Failed to load projects</p>
           <p className="text-sm mt-1">{error}</p>
           <p className="text-sm mt-2">
-            The API now requires <code>Authorization: Bearer</code>. Set{" "}
+            <Link className="underline" href="/login">Sign in</Link> or set{" "}
             <code>NEXT_PUBLIC_API_KEY</code> and reload.
           </p>
         </div>

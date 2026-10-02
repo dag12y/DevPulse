@@ -1,6 +1,37 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
+const TOKEN_STORAGE_KEY = "devpulse.token";
+const WORKSPACE_STORAGE_KEY = "devpulse.workspace";
+
+export function getStoredToken(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+}
+
+export function setStoredToken(token: string) {
+  if (typeof window === "undefined") return;
+  if (token) {
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } else {
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
+
+export function getStoredWorkspace(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(WORKSPACE_STORAGE_KEY) || "";
+}
+
+export function setStoredWorkspace(workspaceID: string) {
+  if (typeof window === "undefined") return;
+  if (workspaceID) {
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceID);
+  } else {
+    window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  }
+}
+
 export interface Project {
   id: string;
   workspace_id: string;
@@ -73,8 +104,18 @@ export interface DevicesStats {
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...options?.headers as Record<string, string> };
-  if (API_KEY && !headers["Authorization"]) {
-    headers["Authorization"] = `Bearer ${API_KEY}`;
+  if (!headers["Authorization"]) {
+    // Automation keys (env) take precedence; otherwise use the login session.
+    const token = API_KEY || getStoredToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+  if (!headers["X-Workspace-ID"]) {
+    const workspaceID = getStoredWorkspace();
+    if (workspaceID) {
+      headers["X-Workspace-ID"] = workspaceID;
+    }
   }
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -133,4 +174,85 @@ export interface RealtimeStats {
 
 export function getRealtime(projectId?: string): Promise<RealtimeStats> {
   return fetchAPI<RealtimeStats>(withProject("/v1/analytics/realtime", projectId));
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
+export interface WorkspaceMembership {
+  workspace_id: string;
+  workspace_name: string;
+  role: string;
+}
+
+export interface WorkspaceMember {
+  user_id: string;
+  email: string;
+  role: string;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  workspaces: WorkspaceMembership[];
+  token: string;
+  expires_at: string;
+  workspace?: WorkspaceMembership;
+}
+
+export function register(email: string, password: string, workspaceName?: string): Promise<AuthResponse> {
+  return fetchAPI<AuthResponse>("/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password, workspace_name: workspaceName || undefined }),
+  });
+}
+
+export function login(email: string, password: string): Promise<AuthResponse> {
+  return fetchAPI<AuthResponse>("/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function logout(): Promise<void> {
+  return fetchAPI<void>("/v1/auth/logout", { method: "POST" }).catch(() => undefined);
+}
+
+export function getMe(): Promise<{ user: AuthUser; workspaces: WorkspaceMembership[] }> {
+  return fetchAPI<{ user: AuthUser; workspaces: WorkspaceMembership[] }>("/v1/auth/me");
+}
+
+export function listMyWorkspaces(): Promise<WorkspaceMembership[]> {
+  return fetchAPI<WorkspaceMembership[]>("/v1/workspaces");
+}
+
+export function createWorkspace(name: string): Promise<WorkspaceMembership> {
+  return fetchAPI<WorkspaceMembership>("/v1/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function listMembers(workspaceID: string): Promise<WorkspaceMember[]> {
+  return fetchAPI<WorkspaceMember[]>(`/v1/workspaces/${workspaceID}/members`);
+}
+
+export function addMember(workspaceID: string, email: string, role: string): Promise<WorkspaceMember> {
+  return fetchAPI<WorkspaceMember>(`/v1/workspaces/${workspaceID}/members`, {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export function updateMemberRole(workspaceID: string, userID: string, role: string): Promise<WorkspaceMember> {
+  return fetchAPI<WorkspaceMember>(`/v1/workspaces/${workspaceID}/members/${userID}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeMember(workspaceID: string, userID: string): Promise<void> {
+  return fetchAPI<void>(`/v1/workspaces/${workspaceID}/members/${userID}`, { method: "DELETE" });
 }

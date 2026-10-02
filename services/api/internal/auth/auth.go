@@ -19,6 +19,9 @@ const (
 
 	keyByteCount = 32
 	keyPrefix    = "dpk_"
+	// sessionPrefix distinguishes human login tokens from workspace API
+	// keys so the two are never confused across endpoints.
+	sessionPrefix = "dps_"
 )
 
 type contextKey string
@@ -26,6 +29,7 @@ type contextKey string
 const (
 	workspaceKey contextKey = "devpulse_workspace_id"
 	roleKey      contextKey = "devpulse_role"
+	userKey      contextKey = "devpulse_user_id"
 )
 
 // KeyFinder resolves a hashed API key to its workspace and role.
@@ -45,11 +49,22 @@ type GeneratedKey struct {
 
 // Generate creates a new random workspace API key.
 func Generate() (GeneratedKey, error) {
+	return generateWithPrefix(keyPrefix)
+}
+
+// GenerateSession creates a new random login token. The distinct prefix
+// keeps human sessions and automation keys visually (and programmatically)
+// separate.
+func GenerateSession() (GeneratedKey, error) {
+	return generateWithPrefix(sessionPrefix)
+}
+
+func generateWithPrefix(prefix string) (GeneratedKey, error) {
 	raw := make([]byte, keyByteCount)
 	if _, err := rand.Read(raw); err != nil {
 		return GeneratedKey{}, err
 	}
-	encoded := keyPrefix + base64.RawURLEncoding.EncodeToString(raw)
+	encoded := prefix + base64.RawURLEncoding.EncodeToString(raw)
 	return GeneratedKey{
 		Raw:    encoded,
 		Prefix: encoded[:12],
@@ -90,6 +105,18 @@ func WorkspaceFromContext(ctx context.Context) (string, bool) {
 func RoleFromContext(ctx context.Context) string {
 	role, _ := ctx.Value(roleKey).(string)
 	return role
+}
+
+// WithUser injects the authenticated human user ID into a context.
+func WithUser(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userKey, userID)
+}
+
+// UserFromContext returns the authenticated human user ID, if any.
+// Automation (API-key) callers have none.
+func UserFromContext(ctx context.Context) (string, bool) {
+	id, ok := ctx.Value(userKey).(string)
+	return id, ok && id != ""
 }
 
 // CanWrite reports whether a role may mutate workspace resources.

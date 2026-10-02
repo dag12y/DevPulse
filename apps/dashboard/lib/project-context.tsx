@@ -3,6 +3,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getProjects, type Project } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export interface DateRangeOption {
   days: number;
@@ -60,6 +61,7 @@ function writeURLParams(project: string | null, days: number) {
 }
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
+  const { selectedWorkspaceID, loading: authLoading } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedTrackingId, setSelectedTrackingId] = useState<string | null>(null);
   const [days, setDaysState] = useState(30);
@@ -68,6 +70,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
+    if (authLoading) return;
     let cancelled = false;
     setLoading(true);
     getProjects()
@@ -98,7 +101,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [refreshToken]);
+  }, [refreshToken, selectedWorkspaceID, authLoading]);
 
   const selectProject = useCallback(
     (trackingId: string) => {

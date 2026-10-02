@@ -13,6 +13,7 @@ import (
 	internalhttp "github.com/dag12y/devpulse/internal/http"
 	"github.com/dag12y/devpulse/internal/projects"
 	"github.com/dag12y/devpulse/internal/retention"
+	"github.com/dag12y/devpulse/internal/users"
 	"github.com/dag12y/devpulse/internal/workspaces"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -40,6 +41,8 @@ func main() {
 	workspaceRepository := workspaces.NewRepository(db.Pool)
 	workspaceHandler := workspaces.NewHandler(workspaceRepository)
 	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
+	usersRepository := users.NewRepository(db.Pool)
+	usersHandler := users.NewHandler(usersRepository)
 
 	var geo analytics.GeoResolver = analytics.NullGeoResolver{}
 	if cfg.GeoIPDBPath != "" {
@@ -56,10 +59,13 @@ func main() {
 	analyticsHandler := analytics.NewHandler(analytics.NewServiceWithGeo(analytics.NewRepository(db.Pool), geo))
 
 	readAuth := func(next http.HandlerFunc) http.HandlerFunc {
-		return auth.RequireAuth(workspaceRepository, false, next).ServeHTTP
+		return auth.RequireAccess(workspaceRepository, usersRepository, usersRepository, time.Now, false, next).ServeHTTP
 	}
 	writeAuth := func(next http.HandlerFunc) http.HandlerFunc {
-		return auth.RequireAuth(workspaceRepository, true, next).ServeHTTP
+		return auth.RequireAccess(workspaceRepository, usersRepository, usersRepository, time.Now, true, next).ServeHTTP
+	}
+	requireSession := func(next http.HandlerFunc) http.HandlerFunc {
+		return auth.RequireSession(usersRepository, time.Now, next).ServeHTTP
 	}
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +105,17 @@ func main() {
 	mux.HandleFunc("GET /v1/analytics/realtime", readAuth(analyticsHandler.Realtime))
 	mux.HandleFunc("POST /v1/workspaces/bootstrap", workspaceHandler.Bootstrap)
 	mux.HandleFunc("POST /v1/workspaces/keys", writeAuth(workspaceHandler.CreateKey))
+
+	mux.HandleFunc("POST /v1/auth/register", usersHandler.Register)
+	mux.HandleFunc("POST /v1/auth/login", usersHandler.Login)
+	mux.HandleFunc("POST /v1/auth/logout", usersHandler.Logout)
+	mux.HandleFunc("GET /v1/auth/me", requireSession(usersHandler.Me))
+	mux.HandleFunc("POST /v1/workspaces", requireSession(usersHandler.CreateWorkspace))
+	mux.HandleFunc("GET /v1/workspaces", requireSession(usersHandler.ListWorkspaces))
+	mux.HandleFunc("GET /v1/workspaces/{id}/members", requireSession(usersHandler.ListMembers))
+	mux.HandleFunc("POST /v1/workspaces/{id}/members", requireSession(usersHandler.AddMember))
+	mux.HandleFunc("PATCH /v1/workspaces/{id}/members/{userId}", requireSession(usersHandler.UpdateMember))
+	mux.HandleFunc("DELETE /v1/workspaces/{id}/members/{userId}", requireSession(usersHandler.RemoveMember))
 
 	addr := ":" + cfg.APIPort
 
