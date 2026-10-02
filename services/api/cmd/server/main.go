@@ -12,7 +12,9 @@ import (
 	"github.com/dag12y/devpulse/internal/database"
 	internalhttp "github.com/dag12y/devpulse/internal/http"
 	"github.com/dag12y/devpulse/internal/projects"
+	"github.com/dag12y/devpulse/internal/retention"
 	"github.com/dag12y/devpulse/internal/workspaces"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -29,6 +31,10 @@ func main() {
 	if err := database.Migrate(ctx, db.Pool); err != nil {
 		log.Fatalf("database migration failed: %v", err)
 	}
+
+	// Retention runs in-process on a ticker. Single-replica safe; a
+	// multi-replica deployment needs leader election before scaling.
+	go runRetentionLoop(db.Pool, cfg.RetentionIntervalMinutes)
 
 	mux := http.NewServeMux()
 	workspaceRepository := workspaces.NewRepository(db.Pool)
@@ -87,5 +93,25 @@ func main() {
 
 	if err := http.ListenAndServe(addr, internalhttp.CORS(mux)); err != nil {
 		log.Fatalf("server failed: %v", err)
+	}
+}
+
+// runRetentionLoop purges expired analytics rows on a schedule. The first
+// pass runs at startup so fresh deployments enforce retention promptly.
+func runRetentionLoop(pool *pgxpool.Pool, intervalMinutes int) {
+	run := func() {
+		result, err := retention.RunOnce(context.Background(), pool, time.Now().UTC())
+		if err != nil {
+			log.Printf("retention cleanup failed: %v", err)
+			return
+		}
+		log.Printf("retention cleanup: %d projects, %d page views, %d sessions, %d visitors deleted",
+			result.ProjectsProcessed, result.PageViewsDeleted, result.SessionsDeleted, result.VisitorsDeleted)
+	}
+	run()
+	ticker := time.NewTicker(time.Duration(intervalMinutes) * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		run()
 	}
 }
