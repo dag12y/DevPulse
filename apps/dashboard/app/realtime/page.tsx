@@ -1,19 +1,27 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- intentional refetch when project/range changes */
 
 import { useEffect, useState } from "react";
 import { getRealtime, type RealtimeStats } from "@/lib/api";
+import { useProject } from "@/lib/project-context";
+import ReportHeader from "@/components/ReportHeader";
 
 const POLL_INTERVAL_MS = 15000;
 
 export default function RealtimePage() {
+  const { selectedTrackingId } = useProject();
   const [realtime, setRealtime] = useState<RealtimeStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!selectedTrackingId) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     const load = () => {
-      getRealtime()
+      getRealtime(selectedTrackingId)
         .then((data) => {
           if (!cancelled) {
             setRealtime(data);
@@ -31,25 +39,38 @@ export default function RealtimePage() {
           }
         });
     };
+    setLoading(true);
     load();
     const interval = setInterval(load, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [selectedTrackingId]);
+
+  if (!selectedTrackingId && !loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Real-time" showDateRange={false} />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-zinc-500">Loading real-time...</p>
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Real-time" showDateRange={false} />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-zinc-500">Loading real-time...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Real-time" showDateRange={false} />
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           <p className="font-medium">Failed to load real-time</p>
           <p className="text-sm mt-1">{error}</p>
@@ -60,7 +81,7 @@ export default function RealtimePage() {
 
   return (
     <div className="p-6 space-y-6">
-      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Real-time</h2>
+      <ReportHeader title="Real-time" showDateRange={false} />
 
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
         <p className="text-sm text-zinc-500">Active visitors (last 5 minutes)</p>
@@ -87,6 +108,9 @@ export default function RealtimePage() {
             ))}
           </tbody>
         </table>
+        {(realtime?.pages ?? []).length === 0 && (
+          <p className="py-4 text-center text-sm text-zinc-500">Nobody online right now.</p>
+        )}
       </div>
     </div>
   );

@@ -1,9 +1,13 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- intentional refetch when project/range changes */
 
 import { useEffect, useState } from "react";
 import { getSummary, getTraffic, getTopPages, type AnalyticsSummary, type TrafficData, type TopPage } from "@/lib/api";
+import { useProject } from "@/lib/project-context";
+import ReportHeader from "@/components/ReportHeader";
 
 export default function OverviewPage() {
+  const { selectedTrackingId, days } = useProject();
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [traffic, setTraffic] = useState<TrafficData[]>([]);
   const [topPages, setTopPages] = useState<TopPage[]>([]);
@@ -11,7 +15,17 @@ export default function OverviewPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getSummary(), getTraffic(14), getTopPages(10)])
+    if (!selectedTrackingId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      getSummary(selectedTrackingId),
+      getTraffic(days, selectedTrackingId),
+      getTopPages(10, selectedTrackingId),
+    ])
       .then(([s, t, p]) => {
         setSummary(s);
         setTraffic(t);
@@ -19,19 +33,31 @@ export default function OverviewPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedTrackingId, days]);
+
+  if (!selectedTrackingId && !loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Overview" />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-zinc-500">Loading analytics...</p>
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Overview" />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-zinc-500">Loading analytics...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Overview" />
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           <p className="font-medium">Failed to load analytics</p>
           <p className="text-sm mt-1">{error}</p>
@@ -44,7 +70,7 @@ export default function OverviewPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Overview</h2>
+      <ReportHeader title="Overview" />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard label="Page Views" value={summary?.total_page_views ?? 0} />
@@ -55,7 +81,7 @@ export default function OverviewPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Traffic (14 days)</h3>
+          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Traffic ({days} days)</h3>
           <div className="flex items-end gap-1 h-40">
             {traffic.map((d) => (
               <div key={d.date} className="flex-1 flex flex-col items-center gap-1">

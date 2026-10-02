@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import ProjectSelector from "@/components/ProjectSelector";
 
 const navItems = [
   { href: "/", label: "Overview" },
@@ -12,6 +13,7 @@ const navItems = [
   { href: "/devices", label: "Devices" },
   { href: "/realtime", label: "Real-time" },
   { href: "/projects", label: "Projects" },
+  { href: "/install", label: "Install" },
 ];
 
 export default function Sidebar() {
@@ -21,6 +23,9 @@ export default function Sidebar() {
     <aside className="w-56 shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-4 hidden md:block">
       <div className="mb-8">
         <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">DevPulse</h1>
+      </div>
+      <div className="mb-6">
+        <ProjectSelector />
       </div>
       <nav className="space-y-1">
         {navItems.map((item) => {

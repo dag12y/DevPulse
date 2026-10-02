@@ -1,33 +1,53 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- intentional refetch when project/range changes */
 
 import { useEffect, useState } from "react";
 import { getTraffic, type TrafficData } from "@/lib/api";
+import { useProject } from "@/lib/project-context";
+import ReportHeader from "@/components/ReportHeader";
 
 export default function TrafficPage() {
+  const { selectedTrackingId, days, setDays } = useProject();
   const [traffic, setTraffic] = useState<TrafficData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState(30);
 
   useEffect(() => {
+    if (!selectedTrackingId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    getTraffic(days)
+    setError(null);
+    getTraffic(days, selectedTrackingId)
       .then(setTraffic)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [days]);
+  }, [days, selectedTrackingId]);
+
+  if (!selectedTrackingId && !loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Traffic" />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-zinc-500">Loading traffic...</p>
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Traffic" />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-zinc-500">Loading traffic...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Traffic" />
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           <p className="font-medium">Failed to load traffic</p>
           <p className="text-sm mt-1">{error}</p>
@@ -40,18 +60,21 @@ export default function TrafficPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Traffic</h2>
-        <select
-          value={days}
-          onChange={(e) => setDays(Number(e.target.value))}
-          className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm"
-        >
-          <option value={7}>Last 7 days</option>
-          <option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
+      <ReportHeader title="Traffic" />
+      <div className="flex items-center justify-end">
+        <label className="inline-flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          Range
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm"
+          >
+            <option value={1}>Last 24 hours</option>
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
+        </label>
       </div>
 
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">

@@ -1,31 +1,53 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- intentional refetch when project/range changes */
 
 import { useEffect, useState } from "react";
 import { getCountries, type CountryStats } from "@/lib/api";
+import { useProject } from "@/lib/project-context";
+import ReportHeader from "@/components/ReportHeader";
 
 export default function CountriesPage() {
+  const { selectedTrackingId } = useProject();
   const [countries, setCountries] = useState<CountryStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getCountries()
+    if (!selectedTrackingId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    getCountries(selectedTrackingId)
       .then(setCountries)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedTrackingId]);
+
+  if (!selectedTrackingId && !loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Countries" />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-zinc-500">Loading countries...</p>
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Countries" />
+        <div className="flex items-center justify-center h-64">
+          <p className="text-zinc-500">Loading countries...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-6 space-y-6">
+        <ReportHeader title="Countries" />
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           <p className="font-medium">Failed to load countries</p>
           <p className="text-sm mt-1">{error}</p>
@@ -36,7 +58,7 @@ export default function CountriesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Countries</h2>
+      <ReportHeader title="Countries" />
 
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
         <table className="w-full text-sm">
@@ -59,6 +81,11 @@ export default function CountriesPage() {
             ))}
           </tbody>
         </table>
+        {countries.length === 0 && (
+          <p className="py-6 text-center text-sm text-zinc-500">
+            No country data yet. Geography requires GeoIP enrichment on the API.
+          </p>
+        )}
       </div>
     </div>
   );
