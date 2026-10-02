@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/dag12y/devpulse/internal/auth"
@@ -40,7 +40,7 @@ func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	for range 5 {
 		trackingID, err := NewTrackingID()
 		if err != nil {
-			log.Printf("generate project tracking ID: %v", err)
+			slog.Error("generate project tracking ID", "error", err)
 			writeError(w, http.StatusInternalServerError, "unable to create project")
 			return
 		}
@@ -50,7 +50,7 @@ func (handler *Handler) Create(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err != nil {
-			log.Printf("create project: %v", err)
+			slog.Error("create project", "error", err)
 			writeError(w, http.StatusInternalServerError, "unable to create project")
 			return
 		}
@@ -70,7 +70,7 @@ func (handler *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	projects, err := handler.repository.List(r.Context(), workspaceID)
 	if err != nil {
-		log.Printf("list projects: %v", err)
+		slog.Error("list projects", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to list projects")
 		return
 	}
@@ -94,7 +94,7 @@ func (handler *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("get project: %v", err)
+		slog.Error("get project", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to get project")
 		return
 	}
@@ -128,7 +128,7 @@ func (handler *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("update project: %v", err)
+		slog.Error("update project", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to update project")
 		return
 	}
@@ -151,7 +151,7 @@ func (handler *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "project not found")
 			return
 		}
-		log.Printf("delete project: %v", err)
+		slog.Error("delete project", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to delete project")
 		return
 	}
@@ -185,7 +185,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		log.Printf("write JSON response: %v", err)
+		slog.Warn("write JSON response", "error", err)
 	}
 }
 

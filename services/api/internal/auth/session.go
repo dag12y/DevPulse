@@ -27,10 +27,15 @@ func BearerToken(r *http.Request) (string, bool) {
 	return bearerToken(r)
 }
 
-// ClientIP extracts the caller IP, preferring the leftmost X-Forwarded-For
-// entry and falling back to the connection remote address. Used for rate
-// limiting (never stored as analytics data).
+// ClientIP extracts the caller IP for rate limiting (never stored as
+// analytics data). Priority: X-Real-IP, which our reverse proxy sets to
+// the TCP peer and overwrites (unspoofable through it); then the leftmost
+// X-Forwarded-For entry (client-supplied, only trustworthy behind a proxy
+// that appends); then the connection address.
 func ClientIP(r *http.Request) string {
+	if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+		return stripPort(real)
+	}
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		if first, _, _ := strings.Cut(forwarded, ","); strings.TrimSpace(first) != "" {
 			return stripPort(strings.TrimSpace(first))

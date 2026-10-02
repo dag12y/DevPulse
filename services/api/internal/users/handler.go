@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -105,7 +105,7 @@ func (handler *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcryptCost)
 	if err != nil {
-		log.Printf("hash password: %v", err)
+		slog.Error("hash password", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to register")
 		return
 	}
@@ -115,19 +115,19 @@ func (handler *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("create user: %v", err)
+		slog.Error("create user", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to register")
 		return
 	}
 	membership, err := handler.store.CreateWorkspace(r.Context(), user.ID, workspaceName)
 	if err != nil {
-		log.Printf("create personal workspace: %v", err)
+		slog.Error("create personal workspace", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to register")
 		return
 	}
 	token, expiresAt, err := handler.newSession(r.Context(), user.ID)
 	if err != nil {
-		log.Printf("create registration session: %v", err)
+		slog.Error("create registration session", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to register")
 		return
 	}
@@ -170,7 +170,7 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("find user: %v", err)
+		slog.Error("find user", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to log in")
 		return
 	}
@@ -180,13 +180,13 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	token, expiresAt, err := handler.newSession(r.Context(), user.ID)
 	if err != nil {
-		log.Printf("create login session: %v", err)
+		slog.Error("create login session", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to log in")
 		return
 	}
 	workspaces, err := handler.store.ListWorkspaces(r.Context(), user.ID)
 	if err != nil {
-		log.Printf("list workspaces: %v", err)
+		slog.Error("list workspaces", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to log in")
 		return
 	}
@@ -207,7 +207,7 @@ func (handler *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := handler.store.RevokeSession(r.Context(), auth.Hash(raw)); err != nil {
-		log.Printf("revoke session: %v", err)
+		slog.Error("revoke session", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to log out")
 		return
 	}
@@ -227,13 +227,13 @@ func (handler *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("find user: %v", err)
+		slog.Error("find user", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to load account")
 		return
 	}
 	workspaces, err := handler.store.ListWorkspaces(r.Context(), userID)
 	if err != nil {
-		log.Printf("list workspaces: %v", err)
+		slog.Error("list workspaces", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to load account")
 		return
 	}
@@ -266,7 +266,7 @@ func (handler *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) 
 	}
 	membership, err := handler.store.CreateWorkspace(r.Context(), userID, name)
 	if err != nil {
-		log.Printf("create workspace: %v", err)
+		slog.Error("create workspace", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to create workspace")
 		return
 	}
@@ -282,7 +282,7 @@ func (handler *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	}
 	workspaces, err := handler.store.ListWorkspaces(r.Context(), userID)
 	if err != nil {
-		log.Printf("list workspaces: %v", err)
+		slog.Error("list workspaces", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to list workspaces")
 		return
 	}
@@ -301,7 +301,7 @@ func (handler *Handler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	members, err := handler.store.ListMembers(r.Context(), workspaceID)
 	if err != nil {
-		log.Printf("list members: %v", err)
+		slog.Error("list members", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to list members")
 		return
 	}
@@ -351,7 +351,7 @@ func (handler *Handler) AddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("add member: %v", err)
+		slog.Error("add member", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to add member")
 		return
 	}
@@ -396,7 +396,7 @@ func (handler *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("update member: %v", err)
+		slog.Error("update member", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to update member")
 		return
 	}
@@ -433,7 +433,7 @@ func (handler *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "workspace must keep at least one owner")
 			return
 		}
-		log.Printf("remove member: %v", err)
+		slog.Error("remove member", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to remove member")
 		return
 	}
@@ -452,7 +452,7 @@ func (handler *Handler) membership(w http.ResponseWriter, r *http.Request, works
 	userID = callerID
 	role, member, err := handler.store.FindMembership(r.Context(), userID, workspaceID)
 	if err != nil {
-		log.Printf("find membership: %v", err)
+		slog.Error("find membership", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to authorize")
 		return "", "", false
 	}
@@ -524,7 +524,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		log.Printf("write users JSON response: %v", err)
+		slog.Warn("write users JSON response", "error", err)
 	}
 }
 

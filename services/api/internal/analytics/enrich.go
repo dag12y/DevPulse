@@ -62,10 +62,13 @@ func (event *Event) Enrich(meta RequestMeta, geo GeoResolver) {
 	}
 }
 
-// ClientIP extracts the caller IP, preferring the leftmost X-Forwarded-For
-// entry (nearest to the original client through trusted proxies) and
-// falling back to the connection remote address. Port and zone are stripped.
+// ClientIP extracts the caller IP, preferring X-Real-IP (set and
+// overwritten by our reverse proxy), then the leftmost X-Forwarded-For
+// entry, then the connection remote address. Port and zone are stripped.
 func ClientIP(r *http.Request) string {
+	if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+		return stripPort(real)
+	}
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		if first, _, _ := strings.Cut(forwarded, ","); strings.TrimSpace(first) != "" {
 			return stripPort(strings.TrimSpace(first))

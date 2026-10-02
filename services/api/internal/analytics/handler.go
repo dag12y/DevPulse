@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -54,7 +54,7 @@ func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			log.Printf("ingest analytics event: %v", err)
+			slog.Error("ingest analytics event", "error", err)
 			writeError(w, http.StatusInternalServerError, "unable to accept event")
 		}
 		return
@@ -211,7 +211,7 @@ func writeQueryError(w http.ResponseWriter, action string, err error) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("%s: %v", action, err)
+		slog.Error(action, "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to "+action)
 	}
 }
@@ -233,7 +233,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		log.Printf("write analytics JSON response: %v", err)
+		slog.Warn("write analytics JSON response", "error", err)
 	}
 }
 

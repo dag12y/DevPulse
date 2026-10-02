@@ -2,7 +2,7 @@ package workspaces
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -28,7 +28,7 @@ type bootstrapInput struct {
 func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 	count, err := h.repository.Count(r.Context())
 	if err != nil {
-		log.Printf("bootstrap count workspaces: %v", err)
+		slog.Error("bootstrap count workspaces", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to bootstrap workspace")
 		return
 	}
@@ -52,19 +52,19 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 
 	workspace, err := h.repository.CreateWorkspace(r.Context(), workspaceName)
 	if err != nil {
-		log.Printf("bootstrap create workspace: %v", err)
+		slog.Error("bootstrap create workspace", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to bootstrap workspace")
 		return
 	}
 	generated, err := auth.Generate()
 	if err != nil {
-		log.Printf("bootstrap generate key: %v", err)
+		slog.Error("bootstrap generate key", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to bootstrap workspace")
 		return
 	}
 	key, err := h.repository.CreateKey(r.Context(), workspace.ID, keyName, auth.RoleOwner, generated)
 	if err != nil {
-		log.Printf("bootstrap create key: %v", err)
+		slog.Error("bootstrap create key", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to bootstrap workspace")
 		return
 	}
@@ -116,13 +116,13 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	generated, err := auth.Generate()
 	if err != nil {
-		log.Printf("generate API key: %v", err)
+		slog.Error("generate API key", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to create API key")
 		return
 	}
 	key, err := h.repository.CreateKey(r.Context(), workspaceID, input.Name, input.Role, generated)
 	if err != nil {
-		log.Printf("create API key: %v", err)
+		slog.Error("create API key", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to create API key")
 		return
 	}
@@ -140,7 +140,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		log.Printf("write workspaces JSON response: %v", err)
+		slog.Warn("write workspaces JSON response", "error", err)
 	}
 }
 

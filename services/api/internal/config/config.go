@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -11,6 +12,7 @@ type Config struct {
 	DatabaseURL              string
 	RetentionIntervalMinutes int
 	GeoIPDBPath              string
+	AllowedOrigins           []string
 }
 
 func Load() Config {
@@ -20,6 +22,7 @@ func Load() Config {
 		DatabaseURL:              os.Getenv("DATABASE_URL"),
 		RetentionIntervalMinutes: getIntEnv("RETENTION_INTERVAL_MINUTES", 60),
 		GeoIPDBPath:              os.Getenv("GEOIP_DB_PATH"),
+		AllowedOrigins:           getListEnv("CORS_ALLOWED_ORIGINS"),
 	}
 }
 
@@ -43,4 +46,18 @@ func getIntEnv(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func getListEnv(key string) []string {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return nil
+	}
+	var values []string
+	for _, value := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	return values
 }

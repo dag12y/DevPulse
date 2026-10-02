@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/dag12y/devpulse/migrations"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -51,7 +51,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("commit migration %s: %w", name, err)
 		}
-		log.Printf("applied migration %s", name)
+		slog.Info("applied migration", "version", name)
 	}
 	return nil
 }

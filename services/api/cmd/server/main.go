@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/dag12y/devpulse/internal/analytics"
@@ -20,17 +21,20 @@ import (
 
 func main() {
 	cfg := config.Load()
+	setupLogging(cfg.AppEnv)
 
 	ctx := context.Background()
 
 	db, err := database.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("database connection failed: %v", err)
+		slog.Error("database connection failed", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	if err := database.Migrate(ctx, db.Pool); err != nil {
-		log.Fatalf("database migration failed: %v", err)
+		slog.Error("database migration failed", "error", err)
+		os.Exit(1)
 	}
 
 	// Retention runs in-process on a ticker. Single-replica safe; a
@@ -48,13 +52,14 @@ func main() {
 	if cfg.GeoIPDBPath != "" {
 		maxMind, err := analytics.OpenMaxMind(cfg.GeoIPDBPath)
 		if err != nil {
-			log.Fatalf("GeoIP database failed: %v", err)
+			slog.Error("GeoIP database failed", "error", err)
+			os.Exit(1)
 		}
 		defer maxMind.Close()
 		geo = maxMind
-		log.Printf("GeoIP enrichment enabled (%s)", cfg.GeoIPDBPath)
+		slog.Info("GeoIP enrichment enabled", "path", cfg.GeoIPDBPath)
 	} else {
-		log.Printf("GEOIP_DB_PATH unset: geography will be reported as Unknown")
+		slog.Info("GEOIP_DB_PATH unset: geography will be reported as Unknown")
 	}
 	analyticsHandler := analytics.NewHandler(analytics.NewServiceWithGeo(analytics.NewRepository(db.Pool), geo))
 
@@ -119,10 +124,43 @@ func main() {
 
 	addr := ":" + cfg.APIPort
 
-	log.Printf("DevPulse API listening on %s", addr)
+	if len(cfg.AllowedOrigins) == 0 {
+		slog.Warn("CORS open to all origins: set CORS_ALLOWED_ORIGINS in production")
+	}
 
-	if err := http.ListenAndServe(addr, internalhttp.CORS(mux)); err != nil {
-		log.Fatalf("server failed: %v", err)
+	// Middleware order: recovery outermost, then identity, observability,
+	// hardening, and finally the timeout backstop around the mux.
+	handler := internalhttp.Recover(
+		internalhttp.RequestID(
+			internalhttp.RequestLogger(
+				internalhttp.SecurityHeaders(
+					internalhttp.CORS(cfg.AllowedOrigins)(
+						internalhttp.Timeout(mux))))))
+
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	slog.Info("DevPulse API listening", "addr", addr)
+
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slog.Error("server failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+// setupLogging emits JSON in production for log aggregation and human
+// readable text elsewhere.
+func setupLogging(appEnv string) {
+	if appEnv == "production" {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	} else {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	}
 }
 
@@ -132,11 +170,14 @@ func runRetentionLoop(pool *pgxpool.Pool, intervalMinutes int) {
 	run := func() {
 		result, err := retention.RunOnce(context.Background(), pool, time.Now().UTC())
 		if err != nil {
-			log.Printf("retention cleanup failed: %v", err)
+			slog.Error("retention cleanup failed", "error", err)
 			return
 		}
-		log.Printf("retention cleanup: %d projects, %d page views, %d sessions, %d visitors deleted",
-			result.ProjectsProcessed, result.PageViewsDeleted, result.SessionsDeleted, result.VisitorsDeleted)
+		slog.Info("retention cleanup",
+			"projects", result.ProjectsProcessed,
+			"page_views", result.PageViewsDeleted,
+			"sessions", result.SessionsDeleted,
+			"visitors", result.VisitorsDeleted)
 	}
 	run()
 	ticker := time.NewTicker(time.Duration(intervalMinutes) * time.Minute)
