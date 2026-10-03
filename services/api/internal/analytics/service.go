@@ -11,6 +11,8 @@ type Repository interface {
 	Summary(context.Context, string, string, int, time.Time) (Summary, error)
 	Traffic(context.Context, string, string, int, time.Time) ([]TrafficPoint, error)
 	TopPages(context.Context, string, string, int, int, time.Time) ([]TopPage, error)
+	LandingPages(context.Context, string, string, int, int, time.Time) ([]LandingPage, error)
+	UTMReport(context.Context, string, string, int, time.Time) (UTMReport, error)
 	Sources(context.Context, string, string, int, time.Time) ([]Source, error)
 	Countries(context.Context, string, string, int, time.Time) ([]Country, error)
 	Devices(context.Context, string, string, int, time.Time) (Devices, error)
@@ -92,6 +94,35 @@ func (service *Service) TopPages(ctx context.Context, workspaceID, trackingID st
 		return []TopPage{}, err
 	}
 	return service.repository.TopPages(ctx, workspaceID, trackingID, limit, days, service.now())
+}
+
+func (service *Service) LandingPages(ctx context.Context, workspaceID, trackingID string, limit int, days int) ([]LandingPage, error) {
+	if workspaceID == "" {
+		return []LandingPage{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
+	if err := validateTrackingFilter(trackingID); err != nil {
+		return []LandingPage{}, &ValidationError{err: err}
+	}
+	if limit < 1 || limit > maxTopPages {
+		return []LandingPage{}, &ValidationError{err: fmt.Errorf("limit must be between 1 and %d", maxTopPages)}
+	}
+	if err := ValidateDays(days); err != nil {
+		return []LandingPage{}, err
+	}
+	return service.repository.LandingPages(ctx, workspaceID, trackingID, limit, days, service.now())
+}
+
+func (service *Service) UTMReport(ctx context.Context, workspaceID, trackingID string, days int) (UTMReport, error) {
+	if workspaceID == "" {
+		return UTMReport{}, &ValidationError{err: fmt.Errorf("authentication required")}
+	}
+	if err := validateTrackingFilter(trackingID); err != nil {
+		return UTMReport{}, &ValidationError{err: err}
+	}
+	if err := ValidateDays(days); err != nil {
+		return UTMReport{}, err
+	}
+	return service.repository.UTMReport(ctx, workspaceID, trackingID, days, service.now())
 }
 
 func (service *Service) Sources(ctx context.Context, workspaceID, trackingID string, days int) ([]Source, error) {

@@ -79,6 +79,8 @@ export default function DevicesPage() {
       <BreakdownTable title="Device Type" entries={devices?.device_types ?? []} csvFilename="device-types" />
       <BreakdownTable title="Browser" entries={devices?.browsers ?? []} csvFilename="browsers" />
       <BreakdownTable title="Operating System" entries={devices?.operating_systems ?? []} csvFilename="operating-systems" />
+      <BreakdownTable title="Screen Resolution" entries={devices?.screens ?? []} csvFilename="screens" />
+      <BreakdownTable title="Viewport Size" entries={devices?.viewports ?? []} csvFilename="viewports" />
     </div>
   );
 }

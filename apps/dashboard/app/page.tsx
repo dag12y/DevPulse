@@ -92,6 +92,44 @@ export default function OverviewPage() {
         />
       </div>
 
+      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">New vs Returning Visitors</h3>
+        {(() => {
+          const fresh = summary?.new_visitors ?? 0;
+          const returning = summary?.returning_visitors ?? 0;
+          const total = fresh + returning;
+          const freshShare = total > 0 ? (fresh / total) * 100 : 0;
+          return (
+            <div>
+              <div
+                className="flex h-3 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+                role="img"
+                aria-label={`${fresh.toLocaleString()} new and ${returning.toLocaleString()} returning visitors`}
+              >
+                <div className="bg-green-500" style={{ width: `${freshShare}%` }} />
+                <div className="bg-blue-500" style={{ width: `${100 - freshShare}%` }} />
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <dt className="text-zinc-500 dark:text-zinc-400">New</dt>
+                  <dd className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                    {fresh.toLocaleString()}{" "}
+                    <span className="text-xs font-normal text-zinc-500">({freshShare.toFixed(1)}%)</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500 dark:text-zinc-400">Returning</dt>
+                  <dd className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                    {returning.toLocaleString()}{" "}
+                    <span className="text-xs font-normal text-zinc-500">({(100 - freshShare).toFixed(1)}%)</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          );
+        })()}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
           <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Traffic ({days} days)</h3>

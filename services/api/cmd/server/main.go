@@ -105,6 +105,8 @@ func main() {
 	mux.HandleFunc("GET /v1/analytics/summary", readAuth(analyticsHandler.Summary))
 	mux.HandleFunc("GET /v1/analytics/traffic", readAuth(analyticsHandler.Traffic))
 	mux.HandleFunc("GET /v1/analytics/pages", readAuth(analyticsHandler.TopPages))
+	mux.HandleFunc("GET /v1/analytics/landing-pages", readAuth(analyticsHandler.LandingPages))
+	mux.HandleFunc("GET /v1/analytics/utm", readAuth(analyticsHandler.UTM))
 	mux.HandleFunc("GET /v1/analytics/sources", readAuth(analyticsHandler.Sources))
 	mux.HandleFunc("GET /v1/analytics/countries", readAuth(analyticsHandler.Countries))
 	mux.HandleFunc("GET /v1/analytics/devices", readAuth(analyticsHandler.Devices))

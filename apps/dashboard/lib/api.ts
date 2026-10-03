@@ -60,6 +60,8 @@ export interface AnalyticsSummary {
   sessions_change: number | null;
   prev_bounce_rate: number;
   bounce_rate_change: number;
+  new_visitors: number;
+  returning_visitors: number;
 }
 
 export interface TrafficData {
@@ -72,6 +74,26 @@ export interface TopPage {
   path: string;
   views: number;
   unique_visitors: number;
+}
+
+export interface LandingPage {
+  path: string;
+  sessions: number;
+  visitors: number;
+  share: number;
+}
+
+export interface UTMBreakdown {
+  name: string;
+  page_views: number;
+  visitors: number;
+  percentage: number;
+}
+
+export interface UTMReport {
+  sources: UTMBreakdown[];
+  mediums: UTMBreakdown[];
+  campaigns: UTMBreakdown[];
 }
 
 export interface TrafficSource {
@@ -100,6 +122,8 @@ export interface DevicesStats {
   device_types: DeviceBreakdown[];
   browsers: DeviceBreakdown[];
   operating_systems: DeviceBreakdown[];
+  screens: DeviceBreakdown[];
+  viewports: DeviceBreakdown[];
 }
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
@@ -148,6 +172,14 @@ export function getTraffic(days = 30, projectId?: string): Promise<TrafficData[]
 
 export function getTopPages(limit = 20, projectId?: string, days = 30): Promise<TopPage[]> {
   return fetchAPI<TopPage[]>(withProject(`/v1/analytics/pages?limit=${limit}&days=${days}`, projectId));
+}
+
+export function getLandingPages(limit = 20, projectId?: string, days = 30): Promise<LandingPage[]> {
+  return fetchAPI<LandingPage[]>(withProject(`/v1/analytics/landing-pages?limit=${limit}&days=${days}`, projectId));
+}
+
+export function getUTM(projectId?: string, days = 30): Promise<UTMReport> {
+  return fetchAPI<UTMReport>(withProject(`/v1/analytics/utm?days=${days}`, projectId));
 }
 
 export function getSources(projectId?: string, days = 30): Promise<TrafficSource[]> {

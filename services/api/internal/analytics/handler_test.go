@@ -19,6 +19,8 @@ type stubRepository struct {
 	summary   func(context.Context, string, string, int, time.Time) (Summary, error)
 	traffic   func(context.Context, string, string, int, time.Time) ([]TrafficPoint, error)
 	topPages  func(context.Context, string, string, int, int, time.Time) ([]TopPage, error)
+	landing   func(context.Context, string, string, int, int, time.Time) ([]LandingPage, error)
+	utm       func(context.Context, string, string, int, time.Time) (UTMReport, error)
 	sources   func(context.Context, string, string, int, time.Time) ([]Source, error)
 	countries func(context.Context, string, string, int, time.Time) ([]Country, error)
 	devices   func(context.Context, string, string, int, time.Time) (Devices, error)
@@ -39,6 +41,20 @@ func (stub *stubRepository) Traffic(ctx context.Context, workspaceID, trackingID
 
 func (stub *stubRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit, days int, now time.Time) ([]TopPage, error) {
 	return stub.topPages(ctx, workspaceID, trackingID, limit, days, now)
+}
+
+func (stub *stubRepository) LandingPages(ctx context.Context, workspaceID, trackingID string, limit, days int, now time.Time) ([]LandingPage, error) {
+	if stub.landing == nil {
+		return []LandingPage{}, nil
+	}
+	return stub.landing(ctx, workspaceID, trackingID, limit, days, now)
+}
+
+func (stub *stubRepository) UTMReport(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (UTMReport, error) {
+	if stub.utm == nil {
+		return UTMReport{}, nil
+	}
+	return stub.utm(ctx, workspaceID, trackingID, days, now)
 }
 
 func (stub *stubRepository) Sources(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Source, error) {
@@ -335,6 +351,10 @@ func TestAllReportsRejectInvalidDays(t *testing.T) {
 			handler.Summary(recorder, req)
 		case path == "/v1/analytics/pages":
 			handler.TopPages(recorder, req)
+		case path == "/v1/analytics/landing-pages":
+			handler.LandingPages(recorder, req)
+		case path == "/v1/analytics/utm":
+			handler.UTM(recorder, req)
 		case path == "/v1/analytics/sources":
 			handler.Sources(recorder, req)
 		case path == "/v1/analytics/countries":
@@ -345,7 +365,8 @@ func TestAllReportsRejectInvalidDays(t *testing.T) {
 		return recorder.Code
 	}
 	for _, path := range []string{
-		"/v1/analytics/summary", "/v1/analytics/pages", "/v1/analytics/sources",
+		"/v1/analytics/summary", "/v1/analytics/pages", "/v1/analytics/landing-pages",
+		"/v1/analytics/utm", "/v1/analytics/sources",
 		"/v1/analytics/countries", "/v1/analytics/devices",
 	} {
 		if status := call(path); status != http.StatusBadRequest {
@@ -424,6 +445,94 @@ func TestRealtimeReturnsMetrics(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	for _, want := range []string{`"active_visitors":2`, `"path":"/"`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestLandingPagesRequiresAuth(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().LandingPages(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/landing-pages", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLandingPagesReturnsMetrics(t *testing.T) {
+	handler := NewHandler(NewService(&stubRepository{
+		landing: func(_ context.Context, workspaceID, _ string, _, _ int, _ time.Time) ([]LandingPage, error) {
+			if workspaceID != testWorkspaceID {
+				return []LandingPage{}, ErrUnknownProject
+			}
+			return []LandingPage{{Path: "/pricing", Sessions: 7, Visitors: 5, Share: 70}}, nil
+		},
+	}))
+	recorder := httptest.NewRecorder()
+	handler.LandingPages(recorder, authedQuery("/v1/analytics/landing-pages"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"path":"/pricing"`, `"sessions":7`, `"share":70`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestLandingPagesRejectsInvalidLimit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().LandingPages(recorder, authedQuery("/v1/analytics/landing-pages?limit=101"))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestUTMRequiresAuth(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	queryHandler().UTM(recorder, httptest.NewRequest(http.MethodGet, "/v1/analytics/utm", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestUTMReturnsMetrics(t *testing.T) {
+	handler := NewHandler(NewService(&stubRepository{
+		utm: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) (UTMReport, error) {
+			if workspaceID != testWorkspaceID {
+				return UTMReport{}, ErrUnknownProject
+			}
+			return UTMReport{
+				Sources:   []UTMBreakdown{{Name: "github", PageViews: 7, Visitors: 5, Percentage: 70}},
+				Mediums:   []UTMBreakdown{{Name: "social", PageViews: 7, Visitors: 5, Percentage: 70}},
+				Campaigns: []UTMBreakdown{{Name: "launch", PageViews: 7, Visitors: 5, Percentage: 70}},
+			}, nil
+		},
+	}))
+	recorder := httptest.NewRecorder()
+	handler.UTM(recorder, authedQuery("/v1/analytics/utm"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"sources"`, `"mediums"`, `"campaigns"`, `"name":"github"`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
+		}
+	}
+}
+
+func TestSummaryIncludesNewVsReturning(t *testing.T) {
+	handler := NewHandler(NewService(&stubRepository{
+		summary: func(context.Context, string, string, int, time.Time) (Summary, error) {
+			return Summary{TotalPageViews: 10, UniqueVisitors: 4, NewVisitors: 3, ReturningVisitors: 1}, nil
+		},
+	}))
+	recorder := httptest.NewRecorder()
+	handler.Summary(recorder, authedQuery("/v1/analytics/summary"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"new_visitors":3`, `"returning_visitors":1`} {
 		if !strings.Contains(recorder.Body.String(), want) {
 			t.Fatalf("missing %s in body=%s", want, recorder.Body.String())
 		}

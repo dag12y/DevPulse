@@ -120,6 +120,46 @@ func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, pages)
 }
 
+func (handler *Handler) LandingPages(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	limit, ok := queryInt(w, r, "limit", 20)
+	if !ok {
+		return
+	}
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return
+	}
+	pages, err := handler.service.LandingPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, days)
+	if err != nil {
+		writeQueryError(w, "load landing pages", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, pages)
+}
+
+func (handler *Handler) UTM(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return
+	}
+	report, err := handler.service.UTMReport(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
+	if err != nil {
+		writeQueryError(w, "load UTM report", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
 func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 	workspaceID, ok := auth.WorkspaceFromContext(r.Context())
 	if !ok {
