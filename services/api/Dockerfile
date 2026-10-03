@@ -13,6 +13,10 @@ FROM alpine:3.22
 WORKDIR /app
 
 COPY --from=builder /devpulse-api /devpulse-api
+# Production tracker bundle served at /analytics.js and
+# /analytics-<version>.js. Built in CI from packages/tracker;
+# missing files 404 until TRACKER_DIR is populated.
+COPY tracker-dist /tracker-dist
 
 EXPOSE 8080
 

@@ -14,6 +14,7 @@ import (
 	internalhttp "github.com/dag12y/devpulse/internal/http"
 	"github.com/dag12y/devpulse/internal/projects"
 	"github.com/dag12y/devpulse/internal/retention"
+	"github.com/dag12y/devpulse/internal/tracker"
 	"github.com/dag12y/devpulse/internal/users"
 	"github.com/dag12y/devpulse/internal/workspaces"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -130,12 +131,25 @@ func main() {
 
 	// Middleware order: recovery outermost, then identity, observability,
 	// hardening, and finally the timeout backstop around the mux.
+	// The tracker bundle is public and served before API routing so a
+	// stable HTTPS URL exists for the <script> tag (long immutable cache
+	// for versioned files, short cache for /analytics.js).
+	trackerHandler := tracker.New(cfg.TrackerDir)
+	if cfg.TrackerDir == "" {
+		slog.Info("TRACKER_DIR unset: /analytics.js will 404 until the tracker bundle is configured")
+	}
+	trackedMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if trackerHandler.TryServe(w, r) {
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 	handler := internalhttp.Recover(
 		internalhttp.RequestID(
 			internalhttp.RequestLogger(
 				internalhttp.SecurityHeaders(
 					internalhttp.CORS(cfg.AllowedOrigins)(
-						internalhttp.Timeout(mux))))))
+						internalhttp.Timeout(trackedMux))))))
 
 	server := &http.Server{
 		Addr:              addr,

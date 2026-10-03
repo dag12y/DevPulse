@@ -35,12 +35,16 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       GEOIP_DB_PATH: ${GEOIP_DB_PATH:-}
       RETENTION_INTERVAL_MINUTES: ${RETENTION_INTERVAL_MINUTES:-60}
+      TRACKER_DIR: /tracker-dist
 
     volumes:
       # Mount a local ./geoip directory holding GeoLite2-City.mmdb so the
       # API can resolve approximate country/region. Optional: without it
       # geography reports as Unknown. See docs/tracking.md.
       - ./geoip:/geoip:ro
+      # Live tracker bundle for local dev (run the tracker build first).
+      # The production image already bakes dist/ into /tracker-dist.
+      - ./packages/tracker/dist:/tracker-dist:ro
 
     ports:
       - "${HOST_API_PORT:-5000}:${API_PORT}"

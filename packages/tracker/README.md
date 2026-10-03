@@ -4,10 +4,12 @@ A small, privacy-conscious browser tracker that sends page views to the DevPulse
 
 ## Install on a website
 
+Prefer the versioned bundle (immutable, cacheable for a year):
+
 ```html
 <script
-  async
-  src="https://analytics.devpulse.example/analytics.js"
+  defer
+  src="https://analytics.example.com/analytics-0.1.0.js"
   data-project="dp_your_project_id"
 ></script>
 ```
@@ -27,10 +29,12 @@ From the repository root:
 ```bash
 pnpm --filter @devpulse/tracker typecheck
 pnpm --filter @devpulse/tracker build
+pnpm --filter @devpulse/tracker size
 pnpm --filter @devpulse/tracker test
 ```
 
-The browser-loadable bundle is written to `dist/analytics.js`.
+The minified browser bundle is written to `dist/analytics.js` plus versioned
+`dist/analytics-<version>.js`. Size budget: 10 KB gzipped (enforced by `size`).
 
 ## Data collected
 

@@ -6,7 +6,8 @@
   "files": ["dist"],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "esbuild src/index.ts --bundle --format=iife --platform=browser --target=es2018 --global-name=DevPulse --outfile=dist/analytics.js",
+    "build": "esbuild src/index.ts --bundle --minify --format=iife --platform=browser --target=es2018 --global-name=DevPulse --outfile=dist/analytics.js && node scripts/build-versioned.mjs",
+    "size": "node scripts/check-size.mjs",
     "test": "esbuild test/tracker.test.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist-test/tracker.test.cjs && node --test dist-test/tracker.test.cjs"
   },
   "devDependencies": {

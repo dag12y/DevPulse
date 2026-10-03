@@ -1,5 +1,6 @@
 import { createUUID, getSessionID, getVisitorID } from "./identity";
 import type { Dimensions, PageViewEvent, TrackerConfig } from "./types";
+import { TRACKER_VERSION } from "./types";
 
 const limits = { url: 2048, path: 1024, title: 512, referrer: 2048, language: 32, timezone: 64, utm: 256 };
 
@@ -12,6 +13,7 @@ export function createPageView(config: TrackerConfig, document: Document, locati
   return {
     event_id: createUUID(), type: "page_view", project_id: config.projectId,
     visitor_id: getVisitorID(document), session_id: getSessionID(storage), timestamp: new Date().toISOString(),
+    sdk_version: TRACKER_VERSION,
     page: {
       url: safeURL(url, limits.url), path: truncate(location.pathname || "/", limits.path),
       title: truncate(document.title || "", limits.title), referrer: truncate(document.referrer || "", limits.referrer),

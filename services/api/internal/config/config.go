@@ -13,6 +13,9 @@ type Config struct {
 	RetentionIntervalMinutes int
 	GeoIPDBPath              string
 	AllowedOrigins           []string
+	// TrackerDir points at the built tracker bundle directory
+	// (packages/tracker/dist). Empty disables /analytics.js serving.
+	TrackerDir string
 }
 
 func Load() Config {
@@ -23,6 +26,7 @@ func Load() Config {
 		RetentionIntervalMinutes: getIntEnv("RETENTION_INTERVAL_MINUTES", 60),
 		GeoIPDBPath:              os.Getenv("GEOIP_DB_PATH"),
 		AllowedOrigins:           getListEnv("CORS_ALLOWED_ORIGINS"),
+		TrackerDir:               os.Getenv("TRACKER_DIR"),
 	}
 }
 

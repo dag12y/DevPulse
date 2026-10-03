@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useProject } from "@/lib/project-context";
 
-const TRACKER_URL = process.env.NEXT_PUBLIC_TRACKER_URL || "https://analytics.devpulse.example/analytics.js";
 const INGEST_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const TRACKER_URL =
+  process.env.NEXT_PUBLIC_TRACKER_URL || `${INGEST_URL}/analytics.js`;
 
 export default function InstallPage() {
   const { projects, selectedProject, selectedTrackingId, selectProject } = useProject();
@@ -13,9 +14,20 @@ export default function InstallPage() {
 
   const trackingId = selectedTrackingId ?? projects[0]?.tracking_id ?? "dp_YOUR_TRACKING_ID";
 
+  const versionedTrackerUrl = useMemo(
+    () => TRACKER_URL.replace(/\/analytics\.js$/, "/analytics-0.1.0.js"),
+    [],
+  );
+
   const snippet = useMemo(
     () =>
       `<script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  defer>\n</script>`,
+    [trackingId],
+  );
+
+  const nextSnippet = useMemo(
+    () =>
+      `<Script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  strategy="afterInteractive"\n/>`,
     [trackingId],
   );
 
@@ -96,7 +108,20 @@ export default function InstallPage() {
             once in your root component. Route changes via <code>pushState</code>/
             <code>replaceState</code>/<code>popstate</code> each send one page view.
           </p>
+          <pre className="mt-3 overflow-x-auto rounded-md bg-zinc-950 p-3 font-mono text-xs text-zinc-100">
+            {nextSnippet}
+          </pre>
         </div>
+      </div>
+
+      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-sm">
+        <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Production bundle</h3>
+        <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+          Served by the API with a 10&nbsp;KB gzip budget. Prefer the immutable versioned file:{" "}
+          <code className="font-mono text-xs">{versionedTrackerUrl}</code> (
+          <code>Cache-Control: immutable</code>). Events report{" "}
+          <code>sdk_version</code> and retry failed sends twice with backoff, then fail silently.
+        </p>
       </div>
 
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-sm">

@@ -1,0 +1,4 @@
+# Staged production tracker bundles (CI populates from packages/tracker/dist).
+*
+!.gitkeep
+!.gitignore

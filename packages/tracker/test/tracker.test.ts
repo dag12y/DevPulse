@@ -50,6 +50,7 @@ test("page view payload contains the backend event contract", () => {
   assert.equal(event.page.path, "/");
   assert.deepEqual(event.viewport, { width: 1200, height: 800 });
   assert.equal(event.page.referrer, "https://referrer.example/");
+  assert.match(event.sdk_version ?? "", /^\d+\.\d+\.\d+$/);
 });
 
 test("SPA navigation sends once for a changed URL and ignores duplicates", () => {
@@ -78,5 +79,22 @@ test("SPA navigation sends once for a changed URL and ignores duplicates", () =>
 });
 
 test("transport failures are silent", () => {
-  assert.doesNotThrow(() => sendEvent("https://api.test/events", {} as never, { sendBeacon: () => false } as Navigator, () => Promise.reject(new Error("offline"))));
+  assert.doesNotThrow(() => sendEvent("https://api.test/events", {} as never, { sendBeacon: () => false } as Navigator, () => Promise.reject(new Error("offline")), { baseDelayMs: 0 }));
+});
+
+test("fetch failure retries with bounded attempts then stops", async () => {
+  let calls = 0;
+  const fetcher = () => {
+    calls += 1;
+    return Promise.reject(new Error("offline"));
+  };
+  sendEvent("https://api.test/events", {} as never, { sendBeacon: () => false } as Navigator, fetcher as typeof fetch, { maxRetries: 2, baseDelayMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(calls, 3);
+});
+
+test("beacon success never touches fetch", () => {
+  let fetchCalls = 0;
+  sendEvent("https://api.test/events", {} as never, { sendBeacon: () => true } as unknown as Navigator, (() => { fetchCalls += 1; return Promise.resolve(new Response()); }) as typeof fetch);
+  assert.equal(fetchCalls, 0);
 });

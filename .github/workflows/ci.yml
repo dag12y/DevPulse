@@ -72,6 +72,8 @@ jobs:
         run: pnpm --filter @devpulse/tracker test
       - name: Tracker production bundle
         run: pnpm --filter @devpulse/tracker build
+      - name: Tracker size budget
+        run: pnpm --filter @devpulse/tracker size
       - name: Dashboard lint
         run: pnpm --filter dashboard lint
       - name: Dashboard production build
@@ -82,5 +84,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build tracker bundle for image
+        run: |
+          pnpm --filter @devpulse/tracker build
+          rm -rf services/api/tracker-dist
+          mkdir -p services/api/tracker-dist
+          cp packages/tracker/dist/analytics*.js services/api/tracker-dist/
       - name: Build production image
         run: docker build -f services/api/Dockerfile -t devpulse-api:ci services/api

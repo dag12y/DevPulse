@@ -1,3 +1,5 @@
+export const TRACKER_VERSION = "0.1.0";
+
 export interface TrackerConfig {
   projectId: string;
   endpoint: string;
@@ -15,6 +17,7 @@ export interface PageViewEvent {
   visitor_id: string;
   session_id: string;
   timestamp: string;
+  sdk_version?: string;
   page: { url: string; path: string; title: string; referrer: string };
   screen: Dimensions;
   viewport: Dimensions;

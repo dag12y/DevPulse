@@ -33,18 +33,21 @@ var (
 )
 
 type Event struct {
-	EventID   string     `json:"event_id"`
-	Type      string     `json:"type"`
-	ProjectID string     `json:"project_id"`
-	VisitorID string     `json:"visitor_id"`
-	SessionID string     `json:"session_id"`
-	Timestamp time.Time  `json:"timestamp"`
-	Page      Page       `json:"page"`
-	Screen    Dimensions `json:"screen"`
-	Viewport  Dimensions `json:"viewport"`
-	Language  string     `json:"language"`
-	Timezone  string     `json:"timezone"`
-	Campaign  Campaign   `json:"campaign"`
+	EventID   string    `json:"event_id"`
+	Type      string    `json:"type"`
+	ProjectID string    `json:"project_id"`
+	VisitorID string    `json:"visitor_id"`
+	SessionID string    `json:"session_id"`
+	Timestamp time.Time `json:"timestamp"`
+	// SdkVersion reports the tracker bundle version (e.g. "0.1.0").
+	// Accepted for observability; never stored, never required.
+	SdkVersion string     `json:"sdk_version,omitempty"`
+	Page       Page       `json:"page"`
+	Screen     Dimensions `json:"screen"`
+	Viewport   Dimensions `json:"viewport"`
+	Language   string     `json:"language"`
+	Timezone   string     `json:"timezone"`
+	Campaign   Campaign   `json:"campaign"`
 
 	// Enrichment is set server-side from request metadata (User-Agent,
 	// transient client IP). It is never decoded from the request body.
@@ -84,6 +87,9 @@ func (event *Event) Validate(now time.Time) error {
 	}
 	if err := requiredLength("visitor_id", event.VisitorID, maxVisitorKey); err != nil {
 		return err
+	}
+	if len(event.SdkVersion) > 32 {
+		return errors.New("sdk_version must not exceed 32 characters")
 	}
 	if err := requiredLength("session_id", event.SessionID, maxSessionKey); err != nil {
 		return err
