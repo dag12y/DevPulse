@@ -556,7 +556,7 @@ func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, 
 		query += ` AND project_id = $3`
 		args = append(args, ref.id)
 	}
-	query += ` GROUP BY referrer, utm_source`
+	query += ` GROUP BY referrer, utm_source ORDER BY COUNT(*) DESC LIMIT 1000`
 
 	rows, err := repository.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -622,7 +622,7 @@ func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID
 		query += ` AND project_id = $3`
 		args = append(args, ref.id)
 	}
-	query += ` GROUP BY 1 ORDER BY COUNT(*) DESC`
+	query += ` GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 100`
 
 	rows, err := repository.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -674,13 +674,13 @@ func (repository *PostgresRepository) Devices(ctx context.Context, workspaceID, 
 	window := windowFor(ref, hasProject, now, days)
 
 	var err error
-	if devices.DeviceTypes, err = repository.breakdown(ctx, "device_type", ref.id, window.Start, window.End, 0); err != nil {
+	if devices.DeviceTypes, err = repository.breakdown(ctx, "device_type", ref.id, window.Start, window.End, 100); err != nil {
 		return devices, err
 	}
-	if devices.Browsers, err = repository.breakdown(ctx, "browser", ref.id, window.Start, window.End, 0); err != nil {
+	if devices.Browsers, err = repository.breakdown(ctx, "browser", ref.id, window.Start, window.End, 100); err != nil {
 		return devices, err
 	}
-	if devices.OperatingSystems, err = repository.breakdown(ctx, "os", ref.id, window.Start, window.End, 0); err != nil {
+	if devices.OperatingSystems, err = repository.breakdown(ctx, "os", ref.id, window.Start, window.End, 100); err != nil {
 		return devices, err
 	}
 	if devices.Screens, err = repository.breakdown(ctx, "screen", ref.id, window.Start, window.End, 25); err != nil {
@@ -781,7 +781,7 @@ func (repository *PostgresRepository) Realtime(ctx context.Context, workspaceID,
 		return realtime, fmt.Errorf("query realtime visitors: %w", err)
 	}
 
-	rows, err := repository.pool.Query(ctx, `SELECT path, COUNT(DISTINCT visitor_id) FROM analytics_page_views WHERE `+filter+` GROUP BY path ORDER BY COUNT(*) DESC`, args...)
+	rows, err := repository.pool.Query(ctx, `SELECT path, COUNT(DISTINCT visitor_id) FROM analytics_page_views WHERE `+filter+` GROUP BY path ORDER BY COUNT(*) DESC LIMIT 50`, args...)
 	if err != nil {
 		return realtime, fmt.Errorf("query realtime pages: %w", err)
 	}

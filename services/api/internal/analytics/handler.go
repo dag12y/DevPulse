@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/dag12y/devpulse/internal/auth"
+	"github.com/dag12y/devpulse/internal/metrics"
 )
 
 const maxRequestBodyBytes = 64 << 10
@@ -25,10 +26,12 @@ func NewHandler(service *Service) *Handler {
 func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 	var event Event
 	if err := decodeEvent(w, r, &event); err != nil {
+		metrics.AddIngested("invalid")
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if !handler.limiter.Allow(event.ProjectID, ClientIP(r)) {
+		metrics.AddIngested("rate_limited")
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
@@ -41,24 +44,31 @@ func (handler *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		switch {
 		case errors.Is(err, ErrUnknownProject):
+			metrics.AddIngested("not_found")
 			writeError(w, http.StatusNotFound, "project not found")
 		case errors.Is(err, ErrDisabledProject):
+			metrics.AddIngested("forbidden")
 			writeError(w, http.StatusForbidden, "project is disabled")
 		case errors.Is(err, ErrOriginNotAllowed):
+			metrics.AddIngested("forbidden")
 			writeError(w, http.StatusForbidden, "origin not allowed for this project")
 		case errors.Is(err, ErrDuplicateEvent):
+			metrics.AddIngested("accepted")
 			writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
 		default:
 			var validationError *ValidationError
 			if errors.As(err, &validationError) {
+				metrics.AddIngested("invalid")
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			metrics.AddIngested("error")
 			slog.Error("ingest analytics event", "error", err)
 			writeError(w, http.StatusInternalServerError, "unable to accept event")
 		}
 		return
 	}
+	metrics.AddIngested("accepted")
 	writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
 }
 
@@ -72,6 +82,7 @@ func (handler *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("summary")
 	summary, err := handler.service.Summary(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load summary", err)
@@ -90,6 +101,7 @@ func (handler *Handler) Traffic(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("traffic")
 	points, err := handler.service.Traffic(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load traffic", err)
@@ -112,6 +124,7 @@ func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("pages")
 	pages, err := handler.service.TopPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, days)
 	if err != nil {
 		writeQueryError(w, "load top pages", err)
@@ -134,6 +147,7 @@ func (handler *Handler) LandingPages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("landing-pages")
 	pages, err := handler.service.LandingPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, days)
 	if err != nil {
 		writeQueryError(w, "load landing pages", err)
@@ -152,6 +166,7 @@ func (handler *Handler) UTM(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("utm")
 	report, err := handler.service.UTMReport(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load UTM report", err)
@@ -170,6 +185,7 @@ func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("sources")
 	sources, err := handler.service.Sources(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load sources", err)
@@ -188,6 +204,7 @@ func (handler *Handler) Countries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("countries")
 	countries, err := handler.service.Countries(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load countries", err)
@@ -206,6 +223,7 @@ func (handler *Handler) Devices(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	metrics.AddReport("devices")
 	devices, err := handler.service.Devices(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
 	if err != nil {
 		writeQueryError(w, "load devices", err)
@@ -220,6 +238,7 @@ func (handler *Handler) Realtime(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	metrics.AddReport("realtime")
 	realtime, err := handler.service.Realtime(r.Context(), workspaceID, r.URL.Query().Get("project_id"))
 	if err != nil {
 		writeQueryError(w, "load realtime", err)
