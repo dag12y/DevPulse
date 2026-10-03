@@ -1,0 +1,16 @@
+# DASHBOARD_HOST and API_HOST are set from the environment, e.g.:
+#   DASHBOARD_HOST=pulse.example.com API_HOST=api.pulse.example.com
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically and
+# proxies to the compose services over the internal network.
+{
+	admin off
+}
+
+{$DASHBOARD_HOST} {
+	reverse_proxy dashboard:3000
+}
+
+{$API_HOST} {
+	reverse_proxy api:{$API_PORT:8080}
+}

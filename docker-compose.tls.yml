@@ -1,0 +1,50 @@
+# DevPulse TLS overlay. DORMANT until you own domain names pointing at
+# the VPS — Caddy needs real hostnames to issue Let's Encrypt certificates.
+#
+# Activation (see docs/production.md "Enabling HTTPS"):
+#   1. Point DASHBOARD_HOST and API_HOST at the VPS (A records).
+#   2. Regenerate .env.prod with the https:// origins and rebuild the
+#      dashboard image (NEXT_PUBLIC_* bake in at build time).
+#   3. docker compose --env-file .env.prod \
+#        -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.tls.yml \
+#        up -d --build
+#
+# With this overlay active, Caddy terminates TLS on 80/443 and the API
+# and dashboard are reachable only over the compose network.
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: devpulse-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DASHBOARD_HOST: ${DASHBOARD_HOST:?DASHBOARD_HOST is required for TLS}
+      API_HOST: ${API_HOST:?API_HOST is required for TLS}
+      API_PORT: ${API_PORT:-8080}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - devpulse_caddy_data:/data
+      - devpulse_caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    # No longer published directly; traffic enters through Caddy.
+    ports: []
+
+  dashboard:
+    ports: []
+
+volumes:
+  devpulse_caddy_data:
+  devpulse_caddy_config:
