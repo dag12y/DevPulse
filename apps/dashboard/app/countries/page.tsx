@@ -5,12 +5,15 @@ import { useEffect, useState } from "react";
 import { getCountries, type CountryStats } from "@/lib/api";
 import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
+import { ErrorState, ReportLoading } from "@/components/ReportStates";
+import ReportTable from "@/components/ReportTable";
 
 export default function CountriesPage() {
   const { selectedTrackingId, days } = useProject();
   const [countries, setCountries] = useState<CountryStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!selectedTrackingId) {
@@ -23,7 +26,7 @@ export default function CountriesPage() {
       .then(setCountries)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId, days]);
+  }, [selectedTrackingId, days, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (
@@ -34,59 +37,37 @@ export default function CountriesPage() {
   }
 
   if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <ReportHeader title="Countries" />
-        <div className="flex items-center justify-center h-64">
-          <p className="text-zinc-500">Loading countries...</p>
-        </div>
-      </div>
-    );
+    return <ReportLoading title="Countries" variant="table" />;
   }
 
   if (error) {
-    return (
-      <div className="p-6 space-y-6">
-        <ReportHeader title="Countries" />
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-          <p className="font-medium">Failed to load countries</p>
-          <p className="text-sm mt-1">{error}</p>
-        </div>
-      </div>
-    );
+    return <ErrorState title="Countries" message={error} onRetry={() => setAttempt((count) => count + 1)} />;
   }
 
   return (
     <div className="p-6 space-y-6">
       <ReportHeader title="Countries" />
 
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
-              <th className="pb-2 font-medium">Country</th>
-              <th className="pb-2 font-medium text-right">Page Views</th>
-              <th className="pb-2 font-medium text-right">Visitors</th>
-              <th className="pb-2 font-medium text-right">Share</th>
-            </tr>
-          </thead>
-          <tbody>
-            {countries.map((c) => (
-              <tr key={c.country} className="border-b border-zinc-100 dark:border-zinc-800/50">
-                <td className="py-2 text-zinc-800 dark:text-zinc-200">{c.country}</td>
-                <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{c.page_views.toLocaleString()}</td>
-                <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{c.visitors.toLocaleString()}</td>
-                <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{c.percentage.toFixed(1)}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {countries.length === 0 && (
-          <p className="py-6 text-center text-sm text-zinc-500">
-            No country data yet. Geography requires GeoIP enrichment on the API.
-          </p>
-        )}
-      </div>
+      <ReportTable
+        rows={countries}
+        rowKey={(country) => country.country}
+        csvFilename="countries"
+        searchPlaceholder="Search countries…"
+        emptyMessage="No country data yet. Geography requires GeoIP enrichment on the API."
+        defaultSortKey="page_views"
+        columns={[
+          { key: "country", label: "Country", value: (country) => country.country },
+          { key: "page_views", label: "Page Views", numeric: true, value: (country) => country.page_views },
+          { key: "visitors", label: "Visitors", numeric: true, value: (country) => country.visitors },
+          {
+            key: "percentage",
+            label: "Share",
+            numeric: true,
+            value: (country) => country.percentage,
+            render: (country) => `${country.percentage.toFixed(1)}%`,
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -5,12 +5,15 @@ import { useEffect, useState } from "react";
 import { getTraffic, type TrafficData } from "@/lib/api";
 import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
+import { ErrorState, ReportLoading } from "@/components/ReportStates";
+import ReportTable from "@/components/ReportTable";
 
 export default function TrafficPage() {
   const { selectedTrackingId, days, setDays } = useProject();
   const [traffic, setTraffic] = useState<TrafficData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!selectedTrackingId) {
@@ -23,7 +26,7 @@ export default function TrafficPage() {
       .then(setTraffic)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [days, selectedTrackingId]);
+  }, [days, selectedTrackingId, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (
@@ -34,26 +37,11 @@ export default function TrafficPage() {
   }
 
   if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <ReportHeader title="Traffic" />
-        <div className="flex items-center justify-center h-64">
-          <p className="text-zinc-500">Loading traffic...</p>
-        </div>
-      </div>
-    );
+    return <ReportLoading title="Traffic" variant="chart" />;
   }
 
   if (error) {
-    return (
-      <div className="p-6 space-y-6">
-        <ReportHeader title="Traffic" />
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-          <p className="font-medium">Failed to load traffic</p>
-          <p className="text-sm mt-1">{error}</p>
-        </div>
-      </div>
-    );
+    return <ErrorState title="Traffic" message={error} onRetry={() => setAttempt((count) => count + 1)} />;
   }
 
   const maxViews = Math.max(...traffic.map((d) => d.page_views), 1);
@@ -65,9 +53,10 @@ export default function TrafficPage() {
         <label className="inline-flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
           Range
           <select
+            aria-label="Traffic date range"
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
             <option value={1}>Last 24 hours</option>
             <option value={7}>Last 7 days</option>
@@ -79,16 +68,27 @@ export default function TrafficPage() {
 
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
         <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Page Views</h3>
-        <div className="flex items-end gap-px h-48">
-          {traffic.map((d) => (
-            <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
-              <div
-                className="w-full bg-blue-500 rounded-t"
-                style={{ height: `${(d.page_views / maxViews) * 100}%` }}
-                title={`${d.date}: ${d.page_views} views, ${d.visitors} visitors`}
-              />
-            </div>
-          ))}
+        <div className="flex items-end gap-px h-48" role="img" aria-label={`Page views per day, ${traffic.length} days`}>
+          {traffic.map((d) => {
+            const tooltip = `${d.date}: ${d.page_views.toLocaleString()} views, ${d.visitors.toLocaleString()} visitors`;
+            return (
+              <div key={d.date} className="group relative flex-1 flex flex-col justify-end items-center gap-1 self-stretch">
+                <div
+                  tabIndex={0}
+                  aria-label={tooltip}
+                  title={tooltip}
+                  className="w-full bg-blue-500 rounded-t focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
+                  style={{ height: `${(d.page_views / maxViews) * 100}%` }}
+                />
+                <span
+                  role="tooltip"
+                  className="pointer-events-none absolute -top-1 left-1/2 z-10 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-zinc-900 px-2 py-1 text-xs text-white group-hover:block group-focus-within:block"
+                >
+                  {tooltip}
+                </span>
+              </div>
+            );
+          })}
         </div>
         <div className="flex justify-between mt-2 text-xs text-zinc-500">
           <span>{traffic[0]?.date}</span>
@@ -96,27 +96,19 @@ export default function TrafficPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Daily Breakdown</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
-              <th className="pb-2 font-medium">Date</th>
-              <th className="pb-2 font-medium text-right">Page Views</th>
-              <th className="pb-2 font-medium text-right">Visitors</th>
-            </tr>
-          </thead>
-          <tbody>
-            {traffic.map((d) => (
-              <tr key={d.date} className="border-b border-zinc-100 dark:border-zinc-800/50">
-                <td className="py-2 text-zinc-800 dark:text-zinc-200">{d.date}</td>
-                <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{d.page_views.toLocaleString()}</td>
-                <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{d.visitors.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ReportTable
+        rows={traffic}
+        rowKey={(row) => row.date}
+        csvFilename="traffic-daily"
+        searchPlaceholder="Search dates…"
+        emptyMessage="No traffic in this range yet."
+        defaultSortKey="date"
+        columns={[
+          { key: "date", label: "Date", value: (row) => row.date },
+          { key: "page_views", label: "Page Views", numeric: true, value: (row) => row.page_views },
+          { key: "visitors", label: "Visitors", numeric: true, value: (row) => row.visitors },
+        ]}
+      />
     </div>
   );
 }

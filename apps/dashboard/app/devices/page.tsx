@@ -5,35 +5,34 @@ import { useEffect, useState } from "react";
 import { getDevices, type DeviceBreakdown, type DevicesStats } from "@/lib/api";
 import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
+import { ErrorState, ReportLoading } from "@/components/ReportStates";
+import ReportTable from "@/components/ReportTable";
 
-function BreakdownTable({ title, entries }: { title: string; entries: DeviceBreakdown[] }) {
+function BreakdownTable({ title, entries, csvFilename }: { title: string; entries: DeviceBreakdown[]; csvFilename: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-      <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">{title}</h3>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
-            <th className="pb-2 font-medium">Name</th>
-            <th className="pb-2 font-medium text-right">Page Views</th>
-            <th className="pb-2 font-medium text-right">Visitors</th>
-            <th className="pb-2 font-medium text-right">Share</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => (
-            <tr key={e.name} className="border-b border-zinc-100 dark:border-zinc-800/50">
-              <td className="py-2 text-zinc-800 dark:text-zinc-200">{e.name}</td>
-              <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{e.page_views.toLocaleString()}</td>
-              <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{e.visitors.toLocaleString()}</td>
-              <td className="py-2 text-right text-zinc-600 dark:text-zinc-400">{e.percentage.toFixed(1)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {entries.length === 0 && (
-        <p className="py-4 text-center text-sm text-zinc-500">No data yet.</p>
-      )}
-    </div>
+    <section aria-label={title}>
+      <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">{title}</h3>
+      <ReportTable
+        rows={entries}
+        rowKey={(entry) => entry.name}
+        csvFilename={csvFilename}
+        searchPlaceholder={`Search ${title.toLowerCase()}…`}
+        emptyMessage="No data yet."
+        defaultSortKey="page_views"
+        columns={[
+          { key: "name", label: "Name", value: (entry) => entry.name },
+          { key: "page_views", label: "Page Views", numeric: true, value: (entry) => entry.page_views },
+          { key: "visitors", label: "Visitors", numeric: true, value: (entry) => entry.visitors },
+          {
+            key: "percentage",
+            label: "Share",
+            numeric: true,
+            value: (entry) => entry.percentage,
+            render: (entry) => `${entry.percentage.toFixed(1)}%`,
+          },
+        ]}
+      />
+    </section>
   );
 }
 
@@ -42,6 +41,7 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<DevicesStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!selectedTrackingId) {
@@ -54,7 +54,7 @@ export default function DevicesPage() {
       .then(setDevices)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId, days]);
+  }, [selectedTrackingId, days, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (
@@ -65,35 +65,20 @@ export default function DevicesPage() {
   }
 
   if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <ReportHeader title="Devices" />
-        <div className="flex items-center justify-center h-64">
-          <p className="text-zinc-500">Loading devices...</p>
-        </div>
-      </div>
-    );
+    return <ReportLoading title="Devices" variant="table" />;
   }
 
   if (error) {
-    return (
-      <div className="p-6 space-y-6">
-        <ReportHeader title="Devices" />
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-          <p className="font-medium">Failed to load devices</p>
-          <p className="text-sm mt-1">{error}</p>
-        </div>
-      </div>
-    );
+    return <ErrorState title="Devices" message={error} onRetry={() => setAttempt((count) => count + 1)} />;
   }
 
   return (
     <div className="p-6 space-y-6">
       <ReportHeader title="Devices" />
 
-      <BreakdownTable title="Device Type" entries={devices?.device_types ?? []} />
-      <BreakdownTable title="Browser" entries={devices?.browsers ?? []} />
-      <BreakdownTable title="Operating System" entries={devices?.operating_systems ?? []} />
+      <BreakdownTable title="Device Type" entries={devices?.device_types ?? []} csvFilename="device-types" />
+      <BreakdownTable title="Browser" entries={devices?.browsers ?? []} csvFilename="browsers" />
+      <BreakdownTable title="Operating System" entries={devices?.operating_systems ?? []} csvFilename="operating-systems" />
     </div>
   );
 }
