@@ -27,6 +27,12 @@ During development, `/analytics.js` (short cache) is equivalent:
 
 The tracking ID identifies the analytics project; it is not a secret credential.
 
+Always set `data-endpoint` to the API that should receive events. The
+bundle default is `http://localhost:5000/v1/analytics/events` (local
+development only) — a production install without `data-endpoint` sends
+events to the visitor's own machine, where they fail silently. The
+dashboard Install page generates the tag with the correct endpoint.
+
 To override the endpoint (self-hosting, staging), set `data-endpoint`:
 
 ```html

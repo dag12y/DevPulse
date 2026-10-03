@@ -12,6 +12,7 @@ import (
 	"github.com/dag12y/devpulse/internal/config"
 	"github.com/dag12y/devpulse/internal/database"
 	internalhttp "github.com/dag12y/devpulse/internal/http"
+	"github.com/dag12y/devpulse/internal/metrics"
 	"github.com/dag12y/devpulse/internal/projects"
 	"github.com/dag12y/devpulse/internal/retention"
 	"github.com/dag12y/devpulse/internal/tracker"
@@ -23,6 +24,11 @@ import (
 func main() {
 	cfg := config.Load()
 	setupLogging(cfg.AppEnv)
+
+	if err := cfg.Validate(); err != nil {
+		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 
 	ctx := context.Background()
 
@@ -80,7 +86,10 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	mux.HandleFunc("/health/db", func(w http.ResponseWriter, r *http.Request) {
+	// pingDB reports database reachability with a tight timeout.
+	// /ready gates load-balancer traffic; /health stays a pure
+	// liveness check that never touches dependencies.
+	pingDB := func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
@@ -94,7 +103,14 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok","database":"connected"}`))
-	})
+	}
+	mux.HandleFunc("/ready", pingDB)
+	mux.HandleFunc("/health/db", pingDB)
+
+	// Operational counters in Prometheus text format. Served
+	// unauthenticated for scrapers; values contain only aggregate
+	// counts, never project IDs or visitor data.
+	mux.HandleFunc("GET /metrics", metrics.Expose)
 
 	mux.HandleFunc("POST /v1/analytics/projects", writeAuth(projectHandler.Create))
 	mux.HandleFunc("GET /v1/analytics/projects", readAuth(projectHandler.List))
@@ -186,9 +202,11 @@ func runRetentionLoop(pool *pgxpool.Pool, intervalMinutes int) {
 	run := func() {
 		result, err := retention.RunOnce(context.Background(), pool, time.Now().UTC())
 		if err != nil {
+			metrics.AddRetentionRun(true, 0, 0, 0)
 			slog.Error("retention cleanup failed", "error", err)
 			return
 		}
+		metrics.AddRetentionRun(false, int64(result.PageViewsDeleted), int64(result.SessionsDeleted), int64(result.VisitorsDeleted))
 		slog.Info("retention cleanup",
 			"projects", result.ProjectsProcessed,
 			"page_views", result.PageViewsDeleted,

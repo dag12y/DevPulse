@@ -80,7 +80,7 @@ jobs:
         run: pnpm --filter dashboard build
 
   docker:
-    name: API image build
+    name: Production image builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,5 +100,10 @@ jobs:
           rm -rf services/api/tracker-dist
           mkdir -p services/api/tracker-dist
           cp packages/tracker/dist/analytics*.js services/api/tracker-dist/
-      - name: Build production image
+      - name: Build API production image
         run: docker build -f services/api/Dockerfile -t devpulse-api:ci services/api
+      - name: Build dashboard production image
+        run: >
+          docker build -f apps/dashboard/Dockerfile
+          --build-arg NEXT_PUBLIC_API_URL=http://localhost:5000
+          -t devpulse-dashboard:ci .

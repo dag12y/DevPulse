@@ -1,0 +1,13 @@
+# Build context for root-context images (dashboard). The API image uses
+# services/api as its own context and is unaffected by this file.
+.git/
+node_modules/
+apps/dashboard/.next/
+apps/dashboard/dist-test/
+packages/tracker/dist/
+packages/tracker/dist-test/
+services/api/tracker-dist/
+geoip/
+.env
+.env.prod
+*.log

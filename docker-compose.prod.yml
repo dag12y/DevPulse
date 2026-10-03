@@ -1,0 +1,68 @@
+# DevPulse production overlay. The base docker-compose.yml stays
+# development-oriented; this file tightens it for a VPS host.
+#
+# Usage (from the repository root, after creating .env.prod):
+#   docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# The dashboard image bakes NEXT_PUBLIC_* at build time, so changing
+# PUBLIC_API_URL requires `--build` (or rebuilding the dashboard image).
+services:
+  postgres:
+    # Never publish the database port in production; the API reaches it
+    # over the compose network as `postgres:5432`.
+    ports: []
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    environment:
+      APP_ENV: production
+      API_PORT: ${API_PORT:-8080}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      GEOIP_DB_PATH: ${GEOIP_DB_PATH:-}
+      RETENTION_INTERVAL_MINUTES: ${RETENTION_INTERVAL_MINUTES:-60}
+      TRACKER_DIR: /tracker-dist
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required in production}
+    # The production image bakes the tracker bundle into /tracker-dist,
+    # so the dev bind-mount is dropped. Keep the optional GeoIP mount
+    # (harmless when the host directory is empty).
+    volumes:
+      - ./geoip:/geoip:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?PUBLIC_API_URL is required}
+        NEXT_PUBLIC_TRACKER_URL: ${PUBLIC_TRACKER_URL:-}
+    container_name: devpulse-dashboard
+    restart: unless-stopped
+    ports:
+      - "${HOST_DASHBOARD_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

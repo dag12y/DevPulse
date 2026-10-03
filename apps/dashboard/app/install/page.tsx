@@ -21,13 +21,13 @@ export default function InstallPage() {
 
   const snippet = useMemo(
     () =>
-      `<script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  defer>\n</script>`,
+      `<script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  data-endpoint="${INGEST_URL}/v1/analytics/events"\n  defer>\n</script>`,
     [trackingId],
   );
 
   const nextSnippet = useMemo(
     () =>
-      `<Script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  strategy="afterInteractive"\n/>`,
+      `<Script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  data-endpoint="${INGEST_URL}/v1/analytics/events"\n  strategy="afterInteractive"\n/>`,
     [trackingId],
   );
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -28,6 +29,20 @@ func Load() Config {
 		AllowedOrigins:           getListEnv("CORS_ALLOWED_ORIGINS"),
 		TrackerDir:               os.Getenv("TRACKER_DIR"),
 	}
+}
+
+// Validate fails fast on configuration that would otherwise surface as
+// confusing runtime errors. Production additionally requires an
+// explicit CORS allowlist: an open API would accept dashboard calls
+// from any origin.
+func (config Config) Validate() error {
+	if config.DatabaseURL == "" {
+		return errors.New("DATABASE_URL is required")
+	}
+	if config.AppEnv == "production" && len(config.AllowedOrigins) == 0 {
+		return errors.New("CORS_ALLOWED_ORIGINS must be set in production (comma-separated origins)")
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {
