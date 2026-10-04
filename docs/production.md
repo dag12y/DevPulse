@@ -209,7 +209,39 @@ Data and code deploy independently here:
 - Never `docker volume rm devpulse_postgres_data` unless you have a
   verified dump elsewhere.
 
-## 7. Enabling HTTPS (when you own domains)
+## 7. Enabling HTTPS (required for the Vercel dashboard)
+
+Browsers block an `https://` Vercel page calling an `http://` API as
+mixed content, so the API must get a real hostname + certificate.
+Certificates cannot be issued for bare IPs — you need a hostname with
+an A record → VPS IP (a free DuckDNS subdomain works).
+
+### 7a. API-only VPS (dashboard on Vercel — your setup)
+
+1. Create one A record: `API_HOST` (e.g. `api.example.com`) → VPS IP.
+2. In the NSG, open **80 + 443** to the world (Caddy needs 80 for
+   issuance). Keep 5000 open until step 5 confirms HTTPS, then close it.
+3. Edit `.env.prod`:
+   ```dotenv
+   API_HOST=api.example.com
+   PUBLIC_API_URL=https://api.example.com
+   CORS_ALLOWED_ORIGINS=https://<YOUR_APP>.vercel.app
+   ```
+4. Start with the API-only TLS overlay:
+   ```bash
+   docker compose --env-file .env.prod \
+     -f docker-compose.yml -f docker-compose.vps.yml \
+     -f docker-compose.tls-api.yml up -d --build
+   docker logs devpulse-caddy --tail 20   # watch for certificate issuance
+   curl -sf https://api.example.com/ready && echo TLS-OK
+   ```
+5. In Vercel, set `NEXT_PUBLIC_API_URL=https://api.example.com`
+   (and `NEXT_PUBLIC_TRACKER_URL=` empty) → Redeploy. The mixed-content
+   error disappears; close port 5000 in the NSG.
+6. Tracker snippets generated after this point use the `https://` API
+   origin automatically.
+
+### 7b. Full-stack VPS (dashboard + API on the VPS)
 
 1. Create A records: dashboard host and API host → VPS IP.
 2. Regenerate env with https origins and rebuild (dashboard bundle

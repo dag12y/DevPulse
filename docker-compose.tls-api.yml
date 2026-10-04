@@ -1,0 +1,51 @@
+# DevPulse TLS overlay for API-only VPS (dashboard on Vercel).
+# Use this INSTEAD of docker-compose.tls.yml, which expects the full
+# stack (dashboard + API) on the VPS.
+#
+# Prerequisites:
+#   1. You own a hostname (domain or free DuckDNS subdomain) with an
+#      A record pointing at the VPS. Bare IPs cannot get certificates.
+#   2. NSG allows inbound 80 + 443. Port 5000 can then be closed.
+#   3. .env.prod contains API_HOST=<that hostname>,
+#      PUBLIC_API_URL=https://<that hostname>,
+#      CORS_ALLOWED_ORIGINS=https://<YOUR_APP>.vercel.app
+#
+# Activation:
+#   docker compose --env-file .env.prod \
+#     -f docker-compose.yml -f docker-compose.vps.yml \
+#     -f docker-compose.tls-api.yml up -d --build
+#   docker logs devpulse-caddy --tail 20   # watch for certificate issuance
+#
+# With this overlay active, Caddy terminates TLS on 80/443 and the API
+# is reachable only over the compose network (no direct :5000).
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: devpulse-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_HOST: ${API_HOST:?API_HOST is required for TLS (e.g. api.example.com)}
+      API_PORT: ${API_PORT:-8080}
+    volumes:
+      - ./Caddyfile.api-only:/etc/caddy/Caddyfile:ro
+      - devpulse_caddy_data:/data
+      - devpulse_caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    # No longer published directly; traffic enters through Caddy.
+    ports: []
+
+volumes:
+  devpulse_caddy_data:
+  devpulse_caddy_config:

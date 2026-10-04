@@ -1,0 +1,14 @@
+# API_HOST is set from the environment, e.g.:
+#   API_HOST=api.example.com
+#
+# Caddy obtains and renews a Let's Encrypt certificate automatically and
+# proxies to the API over the internal compose network. Used when the
+# dashboard runs on Vercel (API-only VPS): the browser talks HTTPS to
+# Caddy, so no mixed-content block.
+{
+	admin off
+}
+
+{$API_HOST} {
+	reverse_proxy api:{$API_PORT:8080}
+}
