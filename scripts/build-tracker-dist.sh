@@ -11,8 +11,24 @@
 #   ./scripts/build-tracker-dist.sh
 set -euo pipefail
 
+# Never prompt for pnpm downloads: this script must run unattended.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="$ROOT/services/api/tracker-dist"
+
+# Root-owned residue (e.g. packages/tracker/dist from an earlier
+# docker-as-root build) makes esbuild fail with "permission denied".
+# Repair ownership of the trees this script writes to.
+fix_owner() {
+  [ -e "$1" ] || return 0
+  [ -w "$1" ] && return 0
+  echo "fixing ownership of $1 (asks for sudo once)..."
+  sudo chown -R "$(id -u):$(id -g)" "$1"
+}
+fix_owner "$ROOT/packages/tracker"
+fix_owner "$ROOT/node_modules"
+fix_owner "$TARGET"
 
 build_host() {
   pnpm install --frozen-lockfile
