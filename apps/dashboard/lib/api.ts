@@ -156,6 +156,20 @@ export function getProjects(): Promise<Project[]> {
   return fetchAPI<Project[]>("/v1/analytics/projects");
 }
 
+export interface CreateProjectInput {
+  name: string;
+  allowed_domains?: string[];
+  timezone?: string;
+  retention_days?: number;
+}
+
+export function createProject(input: CreateProjectInput): Promise<Project> {
+  return fetchAPI<Project>("/v1/analytics/projects", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 function withProject(path: string, projectId?: string): string {
   if (!projectId) return path;
   const separator = path.includes("?") ? "&" : "?";
