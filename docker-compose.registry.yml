@@ -1,0 +1,15 @@
+# Run-only production overlay. Images are built in GitHub Actions and pulled
+# by the VPS, avoiding memory-intensive builds on small servers.
+#
+# Usage:
+#   docker compose --env-file .env.prod \
+#     -f docker-compose.yml -f docker-compose.prod.yml \
+#     -f docker-compose.registry.yml up -d
+services:
+  api:
+    image: ${API_IMAGE:?API_IMAGE is required}
+    build: null
+
+  dashboard:
+    image: ${DASHBOARD_IMAGE:?DASHBOARD_IMAGE is required}
+    build: null

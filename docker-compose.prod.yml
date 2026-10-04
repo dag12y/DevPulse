@@ -4,6 +4,9 @@
 # Usage (from the repository root, after creating .env.prod):
 #   docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
+# For a low-memory VPS, use docker-compose.registry.yml so the VPS pulls
+# prebuilt images instead of compiling the API and dashboard locally.
+#
 # The dashboard image bakes NEXT_PUBLIC_* at build time, so changing
 # PUBLIC_API_URL requires `--build` (or rebuilding the dashboard image).
 services:
