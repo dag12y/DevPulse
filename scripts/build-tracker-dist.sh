@@ -26,7 +26,7 @@ fix_owner() {
   echo "fixing ownership of $1 (asks for sudo once)..."
   sudo chown -R "$(id -u):$(id -g)" "$1"
 }
-fix_owner "$ROOT/packages/tracker"
+fix_owner "$ROOT/packages/tracker/dist"
 fix_owner "$ROOT/node_modules"
 fix_owner "$TARGET"
 
