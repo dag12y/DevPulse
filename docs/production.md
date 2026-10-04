@@ -19,10 +19,15 @@ with an optional Caddy sidecar for TLS once domains exist.
 
 ## 1. Provision the VPS
 
-- Size: 2 vCPU / 4 GB RAM (e.g. `Standard_B2s`) is plenty to start;
+- Size: 2 vCPU / 4 GB RAM (e.g. `Standard_B2s`) is plenty for the full
+  stack; **1 GiB (e.g. `Standard_B2ts_v2`) only fits API + Postgres —
+  run the dashboard on Vercel (section 2)**. Never `docker build` the
+  dashboard on a 1 GiB box: it freezes the machine.
   30–50 GB disk (analytics + Postgres grow with traffic × retention).
-- Networking (NSG): allow inbound **22** (your IP only), **5000** and
-  **3000** (your IP only, until TLS). Deny everything else inbound.
+- Networking (NSG): allow inbound **22** (your IP only), **5000** (API:
+  your IP + Vercel egress; open to tracked sites for `/v1/analytics/events`
+  and `/analytics.js`). No **3000** needed when the dashboard is on Vercel.
+  Deny everything else inbound.
 - OS: Ubuntu 24.04 LTS. Create a non-root sudo user, disable SSH
   password auth (`PasswordAuthentication no`), enable
   `unattended-upgrades`.
@@ -31,27 +36,59 @@ with an optional Caddy sidecar for TLS once domains exist.
 - Optional: enable UFW as a second layer (`ufw allow 22/tcp`,
   `ufw allow 5000/tcp`, `ufw allow 3000/tcp`, `ufw enable`).
 
-## 2. First deploy
+## 2. First deploy (1 GiB VPS: API + Postgres, dashboard on Vercel)
 
 ```bash
 # On the VPS as your deploy user:
 git clone <your-repo-url> /opt/DevPulse
 cd /opt/DevPulse
 
-# Generate .env.prod (writes a random Postgres password, mode 600):
-./scripts/new-prod-env.sh http://<VPS_IP>:5000 http://<VPS_IP>:3000
+# 1 GiB boxes freeze without swap — add 2 GB before anything else:
+sudo ./scripts/enable-swap.sh 2
+
+# Generate .env.prod (random Postgres password, mode 600).
+# Second URL is your Vercel dashboard origin (CORS allowlist):
+./scripts/new-prod-env.sh http://<VPS_IP>:5000 https://<YOUR_APP>.vercel.app
 
 # Optional: enable country/region enrichment:
 #   place GeoLite2-City.mmdb in ./geoip/ and set in .env.prod:
 #   GEOIP_DB_PATH=/geoip/GeoLite2-City.mmdb
 
-# Build images (dashboard bakes in PUBLIC_API_URL) and start:
+# Start API + Postgres only (Go build peaks ~200 MB, safe on 1 GiB):
 docker compose --env-file .env.prod \
-  -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+  -f docker-compose.yml -f docker-compose.vps.yml up -d --build
 ```
 
 Migrations run automatically inside the API on startup; the retention
 worker starts with it. Nothing else to initialize.
+
+### Dashboard on Vercel
+
+1. Vercel → New Project → import this repo. Set **Root Directory** to
+   `apps/dashboard` (Framework: Next.js, Package Manager: pnpm,
+   Build Command: `pnpm build` or default).
+2. Environment Variables (Production + Preview):
+   - `NEXT_PUBLIC_API_URL=http://<VPS_IP>:5000`
+   - `NEXT_PUBLIC_TRACKER_URL=` (leave empty to use `<API>/analytics.js`)
+3. Deploy. Copy the `https://<YOUR_APP>.vercel.app` URL.
+4. Back on the VPS, ensure `.env.prod` has exactly that URL:
+   `CORS_ALLOWED_ORIGINS=https://<YOUR_APP>.vercel.app`, then
+   `docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.vps.yml up -d api`
+   to pick it up (API restart only, no rebuild).
+5. Open the Vercel URL: register → workspace + project → Install
+   snippet points at `http://<VPS_IP>:5000`.
+
+> Vercel redeploys the dashboard on every git push. Changing
+> `NEXT_PUBLIC_*` needs a Vercel redeploy; changing `CORS_ALLOWED_ORIGINS`
+> needs only an API restart.
+
+### Full-stack VPS deploy (2 GB+ RAM only)
+
+```bash
+./scripts/new-prod-env.sh http://<VPS_IP>:5000 http://<VPS_IP>:3000
+docker compose --env-file .env.prod \
+  -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
 
 ### Low-memory VPS deployment
 
@@ -99,7 +136,8 @@ curl -sf $API/ready && echo
 curl -sI $API/analytics.js | grep -i cache-control
 ```
 
-Then in the dashboard (`http://<VPS_IP>:3000`): register an account,
+Then in the dashboard (Vercel URL, or `http://<VPS_IP>:3000` for a
+full-stack VPS): register an account,
 create a workspace + project, copy the Install snippet onto any page
 (the snippet includes the correct `data-endpoint`), load the page,
 and confirm you appear under Real-time within ~15 seconds.
@@ -109,7 +147,8 @@ Useful probes afterwards:
 ```bash
 # Ingestion outcome counters (accepted / invalid / rate_limited / ...):
 curl -s $API/metrics | grep -E "events_ingested|report_requests|retention"
-docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 api
+# Use the same -f flags you started with (vps.yml for 1 GiB boxes):
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.vps.yml logs --tail=50 api
 ```
 
 ## 4. Backups

@@ -1,0 +1,62 @@
+# DevPulse VPS overlay: API + Postgres only, tuned for 1 GiB boxes
+# (e.g. Azure Standard_B2ts_v2). The dashboard runs on Vercel, so the VPS
+# never builds or runs Next.js — Go + Postgres fit comfortably in ~400 MB.
+#
+# Usage (after creating .env.prod with ./scripts/new-prod-env.sh):
+#   docker compose --env-file .env.prod \
+#     -f docker-compose.yml -f docker-compose.vps.yml up -d --build
+#
+# To use a prebuilt API image from GHCR instead of building Go on the VPS,
+# set API_IMAGE in .env.prod and add -f docker-compose.registry.yml... but
+# note registry.yml also expects DASHBOARD_IMAGE. For API-only pulls, either
+# set a dummy DASHBOARD_IMAGE or pull by hand:
+#   docker pull "${API_IMAGE:?set API_IMAGE in .env.prod}"
+# Go builds are small (~200 MB peak) so --build is fine on 1 GiB.
+services:
+  postgres:
+    # Never publish the database port; the API reaches it over the network
+    # as `postgres:5432`.
+    ports: []
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    # Tuned for ~1 GiB RAM: defaults assume a much larger box and will
+    # happily eat the VPS during checkpoints / many connections.
+    command: >
+      postgres
+      -c shared_buffers=128MB
+      -c effective_cache_size=512MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=64MB
+      -c max_connections=20
+      -c synchronous_commit=on
+    mem_limit: 450m
+    mem_reservation: 200m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    environment:
+      APP_ENV: production
+      API_PORT: ${API_PORT:-8080}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      GEOIP_DB_PATH: ${GEOIP_DB_PATH:-}
+      RETENTION_INTERVAL_MINUTES: ${RETENTION_INTERVAL_MINUTES:-60}
+      TRACKER_DIR: /tracker-dist
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required in production}
+    # The production image bakes the tracker bundle into /tracker-dist,
+    # so the dev bind-mount from the base file is dropped. Keep the
+    # optional GeoIP mount (harmless when the host directory is empty).
+    volumes:
+      - ./geoip:/geoip:ro
+    mem_limit: 256m
+    mem_reservation: 64m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
