@@ -155,6 +155,8 @@ func main() {
 	trackerHandler := tracker.New(cfg.TrackerDir)
 	if cfg.TrackerDir == "" {
 		slog.Info("TRACKER_DIR unset: /analytics.js will 404 until the tracker bundle is configured")
+	} else if !tracker.HasBundle(cfg.TrackerDir) {
+		slog.Warn("TRACKER_DIR has no analytics bundle: /analytics.js will 404; run ./scripts/build-tracker-dist.sh before building the API image")
 	}
 	trackedMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if trackerHandler.TryServe(w, r) {

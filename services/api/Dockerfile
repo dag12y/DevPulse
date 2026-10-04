@@ -14,8 +14,9 @@ WORKDIR /app
 
 COPY --from=builder /devpulse-api /devpulse-api
 # Production tracker bundle served at /analytics.js and
-# /analytics-<version>.js. Built in CI from packages/tracker;
-# missing files 404 until TRACKER_DIR is populated.
+# /analytics-<version>.js. Staged by ./scripts/build-tracker-dist.sh
+# (or in CI from packages/tracker); a missing bundle 404s until
+# TRACKER_DIR is populated, and the API logs a warning at startup.
 COPY tracker-dist /tracker-dist
 
 RUN adduser -D -H -u 10001 devpulse

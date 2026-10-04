@@ -23,6 +23,17 @@ func New(dir string) *Handler {
 	return &Handler{dir: strings.TrimSpace(dir)}
 }
 
+// HasBundle reports whether dir contains at least one analytics bundle
+// (analytics.js or a versioned analytics-<version>.js). A configured but
+// empty directory serves 404s, which is always a build/packaging mistake.
+func HasBundle(dir string) bool {
+	matches, err := filepath.Glob(filepath.Join(dir, "analytics*.js"))
+	if err != nil {
+		return false
+	}
+	return len(matches) > 0
+}
+
 // TryServe serves GET/HEAD requests for /analytics.js (short cache) and
 // /analytics-<version>.js (immutable long cache). It reports whether the
 // request path belongs to the tracker, even when the file is missing.

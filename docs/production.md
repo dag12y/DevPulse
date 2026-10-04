@@ -54,13 +54,18 @@ sudo ./scripts/enable-swap.sh 2
 #   place GeoLite2-City.mmdb in ./geoip/ and set in .env.prod:
 #   GEOIP_DB_PATH=/geoip/GeoLite2-City.mmdb
 
-# Start API + Postgres only (Go build peaks ~200 MB, safe on 1 GiB):
+# Start API + Postgres only (Go build peaks ~200 MB, safe on 1 GiB).
+# The tracker bundle MUST be staged first: tracker-dist/ is gitignored,
+# so skipping this bakes an empty dir and /analytics.js 404s.
+./scripts/build-tracker-dist.sh
 docker compose --env-file .env.prod \
   -f docker-compose.yml -f docker-compose.vps.yml up -d --build
 ```
 
 Migrations run automatically inside the API on startup; the retention
-worker starts with it. Nothing else to initialize.
+worker starts with it. If the API logs
+`TRACKER_DIR has no analytics bundle`, the image was built without the
+step above — run it and rebuild the API.
 
 ### Dashboard on Vercel
 
@@ -86,6 +91,7 @@ worker starts with it. Nothing else to initialize.
 
 ```bash
 ./scripts/new-prod-env.sh http://<VPS_IP>:5000 http://<VPS_IP>:3000
+./scripts/build-tracker-dist.sh   # required: stages analytics*.js for the API image
 docker compose --env-file .env.prod \
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
@@ -227,8 +233,10 @@ an A record → VPS IP (a free DuckDNS subdomain works).
    PUBLIC_API_URL=https://api.example.com
    CORS_ALLOWED_ORIGINS=https://<YOUR_APP>.vercel.app
    ```
-4. Start with the API-only TLS overlay:
+4. Start with the API-only TLS overlay (stage the tracker bundle first
+   — otherwise `/analytics.js` 404s):
    ```bash
+   ./scripts/build-tracker-dist.sh
    docker compose --env-file .env.prod \
      -f docker-compose.yml -f docker-compose.vps.yml \
      -f docker-compose.tls-api.yml up -d --build

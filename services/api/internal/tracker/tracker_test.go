@@ -83,3 +83,22 @@ func TestDisabledWhenDirEmpty(t *testing.T) {
 		t.Fatal("expected disabled tracker to fall through")
 	}
 }
+
+func TestHasBundle(t *testing.T) {
+	if HasBundle(t.TempDir()) {
+		t.Fatal("expected empty dir to have no bundle")
+	}
+	dir := t.TempDir()
+	writeBundle(t, dir, "analytics.js", "/* devpulse */")
+	if !HasBundle(dir) {
+		t.Fatal("expected dir with analytics.js to have a bundle")
+	}
+	versioned := t.TempDir()
+	writeBundle(t, versioned, "analytics-0.1.0.js", "/* devpulse */")
+	if !HasBundle(versioned) {
+		t.Fatal("expected dir with versioned bundle to have a bundle")
+	}
+	if HasBundle(filepath.Join(t.TempDir(), "does-not-exist")) {
+		t.Fatal("expected missing dir to have no bundle")
+	}
+}
