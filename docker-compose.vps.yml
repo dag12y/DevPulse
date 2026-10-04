@@ -15,8 +15,10 @@
 services:
   postgres:
     # Never publish the database port; the API reaches it over the network
-    # as `postgres:5432`.
-    ports: []
+    # as `postgres:5432`. NOTE: plain `ports: []` does NOT work here —
+    # Compose merges port lists across files, so `!reset` is required to
+    # drop the published port from the base file.
+    ports: !reset []
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}

@@ -44,7 +44,8 @@ services:
 
   api:
     # No longer published directly; traffic enters through Caddy.
-    ports: []
+    # `!reset` is required: plain `[]` merges and keeps the base ports.
+    ports: !reset []
 
 volumes:
   devpulse_caddy_data:
