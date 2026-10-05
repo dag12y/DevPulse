@@ -149,7 +149,11 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed: ${res.status}`);
   }
-  return res.json();
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export function getProjects(): Promise<Project[]> {
@@ -167,6 +171,27 @@ export function createProject(input: CreateProjectInput): Promise<Project> {
   return fetchAPI<Project>("/v1/analytics/projects", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  allowed_domains?: string[];
+  timezone?: string;
+  retention_days?: number;
+  enabled?: boolean;
+}
+
+export function updateProject(id: string, input: UpdateProjectInput): Promise<Project> {
+  return fetchAPI<Project>(`/v1/analytics/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteProject(id: string): Promise<void> {
+  return fetchAPI<void>(`/v1/analytics/projects/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }
 

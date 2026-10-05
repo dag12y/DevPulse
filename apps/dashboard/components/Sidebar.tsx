@@ -17,6 +17,7 @@ const navItems = [
   { href: "/realtime", label: "Real-time" },
   { href: "/projects", label: "Projects" },
   { href: "/install", label: "Install" },
+  { href: "/settings", label: "Settings" },
 ];
 
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {

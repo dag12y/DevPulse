@@ -230,6 +230,13 @@ export default function ProjectsPage() {
                 >
                   Install
                 </Link>
+                <Link
+                  href={`/settings?project=${encodeURIComponent(project.tracking_id)}`}
+                  onClick={() => selectProject(project.tracking_id)}
+                  className="rounded-md border px-3 py-1.5 text-sm underline"
+                >
+                  Settings
+                </Link>
               </div>
             </div>
           );
