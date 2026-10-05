@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import ProjectSelector from "@/components/ProjectSelector";
+import ThemeToggle from "@/components/ThemeToggle";
 import WorkspaceSelector from "@/components/WorkspaceSelector";
 import { useAuth } from "@/lib/auth-context";
 
@@ -111,7 +112,8 @@ export default function Sidebar() {
               <ProjectSelector />
             </div>
             <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
-            <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4 text-sm">
+            <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4 space-y-4">
+              <ThemeToggle />
               <AccountSection />
             </div>
           </div>
@@ -129,7 +131,8 @@ export default function Sidebar() {
           <ProjectSelector />
         </div>
         <NavLinks pathname={pathname} />
-        <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4 text-sm">
+        <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4 space-y-4 text-sm">
+          <ThemeToggle />
           <AccountSection />
         </div>
       </aside>
