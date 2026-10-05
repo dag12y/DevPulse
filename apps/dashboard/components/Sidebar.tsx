@@ -2,23 +2,113 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import ProjectSelector from "@/components/ProjectSelector";
 import ThemeToggle from "@/components/ThemeToggle";
 import WorkspaceSelector from "@/components/WorkspaceSelector";
 import { useAuth } from "@/lib/auth-context";
 
-const navItems = [
-  { href: "/", label: "Overview" },
-  { href: "/traffic", label: "Traffic" },
-  { href: "/pages", label: "Pages" },
-  { href: "/sources", label: "Sources" },
-  { href: "/countries", label: "Countries" },
-  { href: "/devices", label: "Devices" },
-  { href: "/realtime", label: "Real-time" },
-  { href: "/projects", label: "Projects" },
-  { href: "/install", label: "Install" },
-  { href: "/settings", label: "Settings" },
+const navItems: { href: string; label: string; icon: ReactNode }[] = [
+  {
+    href: "/",
+    label: "Overview",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <rect x="3" y="3" width="7" height="9" rx="1.5" />
+        <rect x="14" y="3" width="7" height="5" rx="1.5" />
+        <rect x="14" y="12" width="7" height="9" rx="1.5" />
+        <rect x="3" y="16" width="7" height="5" rx="1.5" />
+      </svg>
+    ),
+  },
+  {
+    href: "/traffic",
+    label: "Traffic",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+        <path d="M7 14l4-4 3 3 5-6" />
+      </svg>
+    ),
+  },
+  {
+    href: "/pages",
+    label: "Pages",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6M9 13h6M9 17h6" />
+      </svg>
+    ),
+  },
+  {
+    href: "/sources",
+    label: "Sources",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/countries",
+    label: "Countries",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
+        <circle cx="12" cy="10" r="3" />
+      </svg>
+    ),
+  },
+  {
+    href: "/devices",
+    label: "Devices",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <rect x="2" y="3" width="14" height="12" rx="2" />
+        <path d="M6 21h6M9 15v6M16 8l5 2-5 2 2-2z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/realtime",
+    label: "Real-time",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <circle cx="12" cy="12" r="2" />
+        <path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9M4.9 4.9a10.5 10.5 0 0 0 0 14.2M19.1 4.9a10.5 10.5 0 0 1 0 14.2" />
+      </svg>
+    ),
+  },
+  {
+    href: "/projects",
+    label: "Projects",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/install",
+    label: "Install",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 5l-2 14" />
+      </svg>
+    ),
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 shrink-0">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+  },
 ];
 
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
@@ -32,12 +122,13 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             href={item.href}
             aria-current={isActive ? "page" : undefined}
             onClick={onNavigate}
-            className={`block px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
               isActive
                 ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
                 : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
             }`}
           >
+            {item.icon}
             {item.label}
           </Link>
         );

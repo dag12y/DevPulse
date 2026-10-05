@@ -7,6 +7,7 @@ import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
 import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
+import TrafficChart from "@/components/TrafficChart";
 
 export default function OverviewPage() {
   const { selectedTrackingId, days, range } = useProject();
@@ -54,13 +55,11 @@ export default function OverviewPage() {
     return <ErrorState title="Overview" message={error} onRetry={() => setAttempt((count) => count + 1)} />;
   }
 
-  const maxViews = Math.max(...traffic.map((d) => d.page_views), 1);
-
   return (
     <div className="p-6 space-y-6">
       <ReportHeader title="Overview" />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <MetricCard
           label="Page Views"
           value={summary?.total_page_views ?? 0}
@@ -88,6 +87,12 @@ export default function OverviewPage() {
               ? `${formatPoints(summary.bounce_rate_change)} pts vs prior ${summary.days}d`
               : undefined
           }
+          invert={false}
+        />
+        <MetricCard
+          label="Avg Visit"
+          value={formatDuration(summary?.avg_session_duration ?? 0)}
+          change={null}
           invert={false}
         />
       </div>
@@ -131,35 +136,7 @@ export default function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Traffic ({days} days)</h3>
-          <div className="flex items-end gap-1 h-40" role="img" aria-label={`Page views per day over ${days} days`}>
-            {traffic.map((d) => {
-              const tooltip = `${d.date}: ${d.page_views.toLocaleString()} views, ${d.visitors.toLocaleString()} visitors`;
-              return (
-                <div key={d.date} className="group relative flex-1 flex flex-col justify-end items-center gap-1 self-stretch">
-                  <div
-                    tabIndex={0}
-                    aria-label={tooltip}
-                    title={tooltip}
-                    className="w-full bg-blue-500 rounded-t focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600"
-                    style={{ height: `${(d.page_views / maxViews) * 100}%` }}
-                  />
-                  <span
-                    role="tooltip"
-                    className="pointer-events-none absolute -top-1 left-1/2 z-10 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-zinc-900 px-2 py-1 text-xs text-white group-hover:block group-focus-within:block"
-                  >
-                    {tooltip}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex justify-between mt-2 text-xs text-zinc-500">
-            <span>{traffic[0]?.date}</span>
-            <span>{traffic[traffic.length - 1]?.date}</span>
-          </div>
-        </div>
+        <TrafficChart data={traffic} days={days} />
 
         <ReportTable
           rows={topPages}
@@ -215,4 +192,15 @@ function MetricCard({
 function formatPoints(change: number): string {
   const sign = change >= 0 ? "+" : "";
   return `${sign}${(change).toFixed(1)}`;
+}
+
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${rest}s`;
+  return `${rest}s`;
 }
