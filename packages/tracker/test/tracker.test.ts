@@ -11,6 +11,66 @@ class MemoryStorage {
   setItem(key: string, value: string) { this.values.set(key, value); }
 }
 
+import { configFromScript, endpointFromScriptSrc, ingestPath } from "../src/config";
+
+function fakeDocument(script: Record<string, unknown> | null): Document {
+  return {
+    currentScript: script,
+    querySelector: () => script,
+  } as unknown as Document;
+}
+
+function scriptElement(dataset: Record<string, string>, src = ""): Record<string, unknown> {
+  return { tagName: "SCRIPT", src, dataset };
+}
+
+test("ingest endpoint is derived from the script origin, never hardcoded", () => {
+  assert.equal(
+    endpointFromScriptSrc("https://analytics.example.com/analytics.js"),
+    `https://analytics.example.com${ingestPath}`,
+  );
+  assert.equal(
+    endpointFromScriptSrc("https://analytics.example.com/analytics-0.2.0.js"),
+    `https://analytics.example.com${ingestPath}`,
+  );
+  // Port and path must not leak into the endpoint.
+  assert.equal(
+    endpointFromScriptSrc("http://localhost:5000/analytics.js"),
+    `http://localhost:5000${ingestPath}`,
+  );
+});
+
+test("unusable script URLs yield no endpoint instead of a wrong host", () => {
+  assert.equal(endpointFromScriptSrc(undefined), undefined);
+  assert.equal(endpointFromScriptSrc(""), undefined);
+  assert.equal(endpointFromScriptSrc("   "), undefined);
+  assert.equal(endpointFromScriptSrc("/analytics.js"), undefined);
+  assert.equal(endpointFromScriptSrc("not a url"), undefined);
+  assert.equal(endpointFromScriptSrc("javascript:alert(1)"), undefined);
+});
+
+test("config infers the endpoint from the script src when none is given", () => {
+  const config = configFromScript(fakeDocument(scriptElement({ project: "dp_abc" }, "https://analytics.example.com/analytics.js")));
+  assert.deepEqual(config, { projectId: "dp_abc", endpoint: `https://analytics.example.com${ingestPath}` });
+});
+
+test("explicit data-endpoint overrides the derived origin", () => {
+  const config = configFromScript(fakeDocument(
+    scriptElement({ project: "dp_abc", endpoint: "https://api.example.com/v1/analytics/events" }, "https://cdn.example.com/analytics.js"),
+  ));
+  assert.equal(config?.endpoint, "https://api.example.com/v1/analytics/events");
+});
+
+test("config is rejected when no endpoint can be determined", () => {
+  assert.equal(configFromScript(fakeDocument(scriptElement({ project: "dp_abc" }))), null);
+  assert.equal(configFromScript(fakeDocument(scriptElement({ project: "dp_abc" }, "/relative.js"))), null);
+});
+
+test("config still requires a project id", () => {
+  const config = configFromScript(fakeDocument(scriptElement({}, "https://analytics.example.com/analytics.js")));
+  assert.equal(config, null);
+});
+
 test("visitor ID is created and reused through the first-party cookie", () => {
   const document = { cookie: "", location: { protocol: "https:" } } as unknown as Document;
   const first = getVisitorID(document);

@@ -15,7 +15,10 @@ export default function InstallPage() {
   const trackingId = selectedTrackingId ?? projects[0]?.tracking_id ?? "dp_YOUR_TRACKING_ID";
 
   const versionedTrackerUrl = useMemo(
-    () => TRACKER_URL.replace(/\/analytics\.js$/, "/analytics-0.1.0.js"),
+    () =>
+      process.env.NEXT_PUBLIC_TRACKER_VERSION
+        ? TRACKER_URL.replace(/\/analytics\.js$/, `/analytics-${process.env.NEXT_PUBLIC_TRACKER_VERSION}.js`)
+        : TRACKER_URL,
     [],
   );
 

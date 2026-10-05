@@ -9,7 +9,7 @@ versioned bundle (immutable cache, safe to cache for a year):
 
 ```html
 <script
-  src="https://analytics.example.com/analytics-0.1.0.js"
+  src="https://analytics.example.com/analytics-0.2.0.js"
   data-project="PROJECT_TRACKING_ID"
   defer
 ></script>
@@ -27,13 +27,16 @@ During development, `/analytics.js` (short cache) is equivalent:
 
 The tracking ID identifies the analytics project; it is not a secret credential.
 
-Always set `data-endpoint` to the API that should receive events. The
-bundle default is `http://localhost:5000/v1/analytics/events` (local
-development only) — a production install without `data-endpoint` sends
-events to the visitor's own machine, where they fail silently. The
-dashboard Install page generates the tag with the correct endpoint.
+### Ingest endpoint
 
-To override the endpoint (self-hosting, staging), set `data-endpoint`:
+`data-endpoint` is optional. The bundle is served by the API itself, so it
+derives the ingest endpoint from the origin its own `src` was loaded from
+(`<origin>/v1/analytics/events`). The two-attribute snippets above therefore
+work as-is, and no host is ever baked into the published bundle.
+
+Set `data-endpoint` only when events must go somewhere other than the host
+serving the tracker (a separate API domain, or a proxy). It always wins over
+the derived origin:
 
 ```html
 <script
@@ -44,7 +47,8 @@ To override the endpoint (self-hosting, staging), set `data-endpoint`:
 ></script>
 ```
 
-The development default is `http://localhost:5000/v1/analytics/events`.
+If neither `data-endpoint` nor a usable absolute `src` is available, the
+tracker skips tracking instead of posting to a guessed host.
 
 ## Production bundle
 
@@ -60,7 +64,7 @@ The development default is `http://localhost:5000/v1/analytics/events`.
   (`Cache-Control: public, max-age=31536000, immutable`).
   The Docker image bakes the bundle into `/tracker-dist` and sets
   `TRACKER_DIR=/tracker-dist`. Without `TRACKER_DIR` the routes 404.
-- Version reporting: every page view sends `sdk_version` (e.g. `"0.1.0"`).
+- Version reporting: every page view sends `sdk_version` (e.g. `"0.2.0"`).
   The API accepts and ignores it for storage; use it for debugging rollout.
 
 ## Page Views
@@ -129,7 +133,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
         <Script
-          src="https://analytics.example.com/analytics-0.1.0.js"
+          src="https://analytics.example.com/analytics-0.2.0.js"
           data-project="dp_your_project_id"
           strategy="afterInteractive"
         />
@@ -152,7 +156,7 @@ so React Router route changes are tracked. For a custom endpoint:
 ```html
 <script
   defer
-  src="https://analytics.example.com/analytics-0.1.0.js"
+  src="https://analytics.example.com/analytics-0.2.0.js"
   data-project="dp_your_project_id"
   data-endpoint="https://api.example.com/v1/analytics/events"
 ></script>

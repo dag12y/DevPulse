@@ -9,7 +9,7 @@ Prefer the versioned bundle (immutable, cacheable for a year):
 ```html
 <script
   defer
-  src="https://analytics.example.com/analytics-0.1.0.js"
+  src="https://analytics.example.com/analytics-0.2.0.js"
   data-project="dp_your_project_id"
 ></script>
 ```
