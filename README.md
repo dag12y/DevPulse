@@ -33,7 +33,8 @@ curl -X POST localhost:5000/v1/auth/register \
 #   plus: X-Workspace-ID: <workspace_id>
 ```
 
-Add one tag to your site (see **Install** in the dashboard for your tracking ID):
+Add one tag to your site (see **Install** in the dashboard for your tracking ID —
+the endpoint is derived from the tracker's own origin, so no `data-endpoint` needed):
 
 ```html
 <script src="https://analytics.example.com/analytics.js" data-project="dp_xxx" defer></script>
