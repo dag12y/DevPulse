@@ -27,6 +27,11 @@ var (
 	ErrAlreadyMember = errors.New("user is already a member of this workspace")
 	ErrLastOwner     = errors.New("workspace must keep at least one owner")
 	ErrForbidden     = errors.New("forbidden")
+	// ErrNameTaken reports a per-user duplicate workspace name. Names are
+	// unique per user (case-insensitive), not globally: two strangers may
+	// both own "Acme", but one user may not own it twice — identical rows
+	// are indistinguishable in the workspace switcher.
+	ErrNameTaken = errors.New("workspace name is already in use")
 )
 
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)

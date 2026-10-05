@@ -136,6 +136,8 @@ func main() {
 	mux.HandleFunc("GET /v1/auth/me", requireSession(usersHandler.Me))
 	mux.HandleFunc("POST /v1/workspaces", requireSession(usersHandler.CreateWorkspace))
 	mux.HandleFunc("GET /v1/workspaces", requireSession(usersHandler.ListWorkspaces))
+	mux.HandleFunc("PATCH /v1/workspaces/{id}", requireSession(usersHandler.RenameWorkspace))
+	mux.HandleFunc("DELETE /v1/workspaces/{id}", requireSession(usersHandler.DeleteWorkspace))
 	mux.HandleFunc("GET /v1/workspaces/{id}/members", requireSession(usersHandler.ListMembers))
 	mux.HandleFunc("POST /v1/workspaces/{id}/members", requireSession(usersHandler.AddMember))
 	mux.HandleFunc("PATCH /v1/workspaces/{id}/members/{userId}", requireSession(usersHandler.UpdateMember))

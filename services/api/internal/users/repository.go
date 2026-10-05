@@ -113,10 +113,34 @@ func (repository *Repository) RevokeSession(ctx context.Context, tokenHash strin
 	return nil
 }
 
+// nameTakenByUser reports whether the user already belongs to a workspace
+// with this name (case-insensitive), optionally excluding one workspace
+// (the rename target itself).
+func (repository *Repository) nameTakenByUser(ctx context.Context, userID, name, excludeWorkspaceID string) (bool, error) {
+	var exists bool
+	if err := repository.pool.QueryRow(ctx,
+		`SELECT EXISTS (
+		   SELECT 1 FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
+		   WHERE m.user_id = $1 AND lower(w.name) = lower($2)
+		     AND ($3 = '' OR m.workspace_id <> $3::uuid)
+		 )`,
+		userID, name, excludeWorkspaceID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check workspace name: %w", err)
+	}
+	return exists, nil
+}
+
 // CreateWorkspace creates a workspace with the caller as owner.
 func (repository *Repository) CreateWorkspace(ctx context.Context, userID, name string) (Membership, error) {
+	taken, err := repository.nameTakenByUser(ctx, userID, name, "")
+	if err != nil {
+		return Membership{}, err
+	}
+	if taken {
+		return Membership{}, ErrNameTaken
+	}
 	var membership Membership
-	err := repository.pool.QueryRow(ctx,
+	err = repository.pool.QueryRow(ctx,
 		`WITH workspace AS (
 			INSERT INTO workspaces (name) VALUES ($2) RETURNING id, name
 		), member AS (
@@ -132,12 +156,71 @@ func (repository *Repository) CreateWorkspace(ctx context.Context, userID, name 
 	return membership, nil
 }
 
-// ListWorkspaces returns every workspace the user belongs to.
+// RenameWorkspace renames a workspace the caller belongs to. Ownership is
+// checked by the handler (owner/admin only); here we enforce membership,
+// per-user name uniqueness, and return the updated name.
+func (repository *Repository) RenameWorkspace(ctx context.Context, userID, workspaceID, name string) (string, error) {
+	var member bool
+	if err := repository.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2)`,
+		workspaceID, userID).Scan(&member); err != nil {
+		return "", fmt.Errorf("check membership: %w", err)
+	}
+	if !member {
+		return "", ErrNotFound
+	}
+	taken, err := repository.nameTakenByUser(ctx, userID, name, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if taken {
+		return "", ErrNameTaken
+	}
+	var renamed string
+	if err := repository.pool.QueryRow(ctx,
+		`UPDATE workspaces SET name = $2, updated_at = NOW()
+		  WHERE id = $1 RETURNING name`,
+		workspaceID, name).Scan(&renamed); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("rename workspace: %w", err)
+	}
+	return renamed, nil
+}
+
+// DeleteWorkspace removes the workspace and everything it owns. All child
+// tables (analytics_projects, workspace_api_keys, workspace_members)
+// cascade from workspaces(id), so one DELETE is the whole operation.
+func (repository *Repository) DeleteWorkspace(ctx context.Context, userID, workspaceID string) error {
+	var member bool
+	if err := repository.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2)`,
+		workspaceID, userID).Scan(&member); err != nil {
+		return fmt.Errorf("check membership: %w", err)
+	}
+	if !member {
+		return ErrNotFound
+	}
+	tag, err := repository.pool.Exec(ctx,
+		`DELETE FROM workspaces WHERE id = $1`, workspaceID)
+	if err != nil {
+		return fmt.Errorf("delete workspace: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ListWorkspaces returns every workspace the user belongs to, ordered by
+// creation time with the workspace ID as a tiebreaker so listing is
+// deterministic even when two rows share a timestamp.
 func (repository *Repository) ListWorkspaces(ctx context.Context, userID string) ([]Membership, error) {
 	rows, err := repository.pool.Query(ctx,
 		`SELECT m.workspace_id::text, w.name, m.role
 		  FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
-		  WHERE m.user_id = $1 ORDER BY w.created_at`,
+		  WHERE m.user_id = $1 ORDER BY w.created_at, w.id`,
 		userID)
 	if err != nil {
 		return nil, fmt.Errorf("list workspaces: %w", err)

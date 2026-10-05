@@ -40,6 +40,8 @@ type Store interface {
 	RevokeSession(ctx context.Context, tokenHash string) error
 	CreateWorkspace(ctx context.Context, userID, name string) (Membership, error)
 	ListWorkspaces(ctx context.Context, userID string) ([]Membership, error)
+	RenameWorkspace(ctx context.Context, userID, workspaceID, name string) (string, error)
+	DeleteWorkspace(ctx context.Context, userID, workspaceID string) error
 	FindMembership(ctx context.Context, userID, workspaceID string) (string, bool, error)
 	ListMembers(ctx context.Context, workspaceID string) ([]Member, error)
 	AddMember(ctx context.Context, workspaceID, email, role string) (*Member, error)
@@ -265,6 +267,10 @@ func (handler *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	membership, err := handler.store.CreateWorkspace(r.Context(), userID, name)
+	if errors.Is(err, ErrNameTaken) {
+		writeError(w, http.StatusConflict, "workspace name is already in use")
+		return
+	}
 	if err != nil {
 		slog.Error("create workspace", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to create workspace")
@@ -287,6 +293,79 @@ func (handler *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, workspaces)
+}
+
+type renameWorkspaceInput struct {
+	Name string `json:"name"`
+}
+
+// RenameWorkspace renames a workspace. Owner/admin only; viewers receive
+// 403. Non-members (and unknown IDs) report 404 so workspace existence is
+// never leaked; a per-user duplicate name reports 409.
+func (handler *Handler) RenameWorkspace(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := workspacePathID(w, r)
+	if !ok {
+		return
+	}
+	userID, _, ok := handler.membership(w, r, workspaceID, true)
+	if !ok {
+		return
+	}
+	var input renameWorkspaceInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	name, err := ValidateWorkspaceName(input.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	renamed, err := handler.store.RenameWorkspace(r.Context(), userID, workspaceID, name)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+	if errors.Is(err, ErrNameTaken) {
+		writeError(w, http.StatusConflict, "workspace name is already in use")
+		return
+	}
+	if err != nil {
+		slog.Error("rename workspace", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to rename workspace")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"workspace_id": workspaceID, "workspace_name": renamed})
+}
+
+// DeleteWorkspace deletes the workspace and everything it owns (projects,
+// API keys, memberships cascade). Owner only — admins receive 403 —
+// because deletion is irreversible and wipes analytics data. Deleting the
+// caller's last workspace is allowed: ListWorkspaces then returns empty
+// and the dashboard shows the create-workspace state.
+func (handler *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := workspacePathID(w, r)
+	if !ok {
+		return
+	}
+	userID, role, ok := handler.membership(w, r, workspaceID, false)
+	if !ok {
+		return
+	}
+	if role != auth.RoleOwner {
+		writeError(w, http.StatusForbidden, "only workspace owners can delete the workspace")
+		return
+	}
+	if err := handler.store.DeleteWorkspace(r.Context(), userID, workspaceID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		slog.Error("delete workspace", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to delete workspace")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ListMembers returns the workspace roster. Membership itself is the

@@ -7,8 +7,10 @@ import { useAuth } from "@/lib/auth-context";
 import {
   addMember,
   createWorkspace,
+  deleteWorkspace,
   listMembers,
   removeMember,
+  renameWorkspace,
   updateMemberRole,
   type WorkspaceMember,
 } from "@/lib/api";
@@ -22,6 +24,9 @@ export default function AccountPage() {
   const [inviteRole, setInviteRole] = useState("viewer");
   const [actionError, setActionError] = useState<string | null>(null);
   const [newWorkspace, setNewWorkspace] = useState("");
+  const [editingWorkspaceID, setEditingWorkspaceID] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [confirmDeleteID, setConfirmDeleteID] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedWorkspaceID) {
@@ -116,6 +121,43 @@ export default function AccountPage() {
     }
   };
 
+  const canEdit = (role: string) => role === "owner" || role === "admin";
+  const canDelete = (role: string) => role === "owner";
+
+  const startRename = (workspaceID: string, currentName: string) => {
+    setConfirmDeleteID(null);
+    setEditingWorkspaceID(workspaceID);
+    setEditingName(currentName);
+  };
+
+  const saveRename = async (e: React.FormEvent, workspaceID: string) => {
+    e.preventDefault();
+    setActionError(null);
+    try {
+      await renameWorkspace(workspaceID, editingName);
+      setEditingWorkspaceID(null);
+      setEditingName("");
+      refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Rename failed");
+    }
+  };
+
+  const destroy = async (workspaceID: string) => {
+    setActionError(null);
+    try {
+      await deleteWorkspace(workspaceID);
+      setConfirmDeleteID(null);
+      refresh();
+      if (workspaceID === selectedWorkspaceID) {
+        const next = workspaces.find((m) => m.workspace_id !== workspaceID);
+        selectWorkspace(next ? next.workspace_id : "");
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Delete failed");
+    }
+  };
+
   return (
     <div className="max-w-3xl space-y-8 p-6">
       <div>
@@ -128,23 +170,85 @@ export default function AccountPage() {
         <ul className="mt-3 space-y-2 text-sm">
           {workspaces.map((membership) => (
             <li key={membership.workspace_id} className="flex items-center justify-between gap-3">
-              <span>
-                {membership.workspace_name}{" "}
-                <span className="text-zinc-500">· {membership.role}</span>
-              </span>
-              {membership.workspace_id === selectedWorkspaceID ? (
-                <span className="text-xs text-zinc-500">Selected</span>
+              {editingWorkspaceID === membership.workspace_id ? (
+                <form onSubmit={(e) => saveRename(e, membership.workspace_id)} className="flex flex-1 gap-2">
+                  <input
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    aria-label="Workspace name"
+                    className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm"
+                  />
+                  <button type="submit" className="rounded-md border px-2 py-1 text-xs">
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingWorkspaceID(null)}
+                    className="rounded-md border px-2 py-1 text-xs"
+                  >
+                    Cancel
+                  </button>
+                </form>
               ) : (
-                <button
-                  onClick={() => selectWorkspace(membership.workspace_id)}
-                  className="rounded-md border px-2 py-1 text-xs"
-                >
-                  Select
-                </button>
+                <span>
+                  {membership.workspace_name}{" "}
+                  <span className="text-zinc-500">· {membership.role}</span>
+                </span>
+              )}
+              {editingWorkspaceID !== membership.workspace_id && (
+                <span className="flex items-center gap-2">
+                  {membership.workspace_id === selectedWorkspaceID ? (
+                    <span className="text-xs text-zinc-500">Selected</span>
+                  ) : (
+                    <button
+                      onClick={() => selectWorkspace(membership.workspace_id)}
+                      className="rounded-md border px-2 py-1 text-xs"
+                    >
+                      Select
+                    </button>
+                  )}
+                  {canEdit(membership.role) && (
+                    <button
+                      onClick={() => startRename(membership.workspace_id, membership.workspace_name)}
+                      className="rounded-md border px-2 py-1 text-xs"
+                    >
+                      Rename
+                    </button>
+                  )}
+                  {canDelete(membership.role) &&
+                    (confirmDeleteID === membership.workspace_id ? (
+                      <>
+                        <button
+                          onClick={() => destroy(membership.workspace_id)}
+                          className="rounded-md border border-red-300 dark:border-red-700 px-2 py-1 text-xs text-red-600 dark:text-red-400"
+                        >
+                          Confirm delete
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteID(null)}
+                          className="rounded-md border px-2 py-1 text-xs"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteID(membership.workspace_id)}
+                        className="rounded-md border px-2 py-1 text-xs text-red-600 dark:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    ))}
+                </span>
               )}
             </li>
           ))}
         </ul>
+        {confirmDeleteID && (
+          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+            Deleting a workspace permanently removes its projects, analytics data, API keys, and memberships.
+          </p>
+        )}
         <form onSubmit={create} className="mt-4 flex gap-2">
           <input
             value={newWorkspace}
@@ -157,6 +261,7 @@ export default function AccountPage() {
             Create
           </button>
         </form>
+        {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
       </section>
 
       <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">

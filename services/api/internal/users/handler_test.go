@@ -41,6 +41,8 @@ type stubStore struct {
 	addMember       func(context.Context, string, string, string) (*Member, error)
 	updateMember    func(context.Context, string, string, string) (*Member, error)
 	removeMember    func(context.Context, string, string) error
+	renameWorkspace func(context.Context, string, string, string) (string, error)
+	deleteWorkspace func(context.Context, string, string) error
 }
 
 func (s *stubStore) CreateUser(ctx context.Context, email, hash string) (*User, error) {
@@ -81,6 +83,12 @@ func (s *stubStore) UpdateMemberRole(ctx context.Context, workspaceID, userID, r
 }
 func (s *stubStore) RemoveMember(ctx context.Context, workspaceID, userID string) error {
 	return s.removeMember(ctx, workspaceID, userID)
+}
+func (s *stubStore) RenameWorkspace(ctx context.Context, userID, workspaceID, name string) (string, error) {
+	return s.renameWorkspace(ctx, userID, workspaceID, name)
+}
+func (s *stubStore) DeleteWorkspace(ctx context.Context, userID, workspaceID string) error {
+	return s.deleteWorkspace(ctx, userID, workspaceID)
 }
 
 func authedRequest(t *testing.T, method, target, body string) *http.Request {
@@ -301,6 +309,152 @@ func TestRemoveMemberMapsLastOwner(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler.RemoveMember(recorder, req)
 	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status=%d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestRenameWorkspaceRenamesForOwner(t *testing.T) {
+	var gotName string
+	handler := NewHandler(&stubStore{
+		findMembership: func(context.Context, string, string) (string, bool, error) {
+			return auth.RoleOwner, true, nil
+		},
+		renameWorkspace: func(_ context.Context, userID, workspaceID, name string) (string, error) {
+			if userID != testUserID || workspaceID != testWorkspaceID {
+				t.Fatalf("rename args = %q %q", userID, workspaceID)
+			}
+			gotName = name
+			return name, nil
+		},
+	})
+	req := authedRequest(t, http.MethodPatch, "/v1/workspaces/"+testWorkspaceID, `{"name":"  Renamed Co  "}`)
+	req.SetPathValue("id", testWorkspaceID)
+	recorder := httptest.NewRecorder()
+	handler.RenameWorkspace(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if gotName != "Renamed Co" {
+		t.Fatalf("renamed name = %q, want trimmed %q", gotName, "Renamed Co")
+	}
+	if !strings.Contains(recorder.Body.String(), `"workspace_name":"Renamed Co"`) {
+		t.Fatalf("body=%s, want renamed name", recorder.Body.String())
+	}
+}
+
+func TestRenameWorkspaceRejectsViewer(t *testing.T) {
+	handler := NewHandler(&stubStore{
+		findMembership: func(context.Context, string, string) (string, bool, error) {
+			return auth.RoleViewer, true, nil
+		},
+		renameWorkspace: func(context.Context, string, string, string) (string, error) {
+			t.Fatal("viewer must not rename")
+			return "", nil
+		},
+	})
+	req := authedRequest(t, http.MethodPatch, "/v1/workspaces/"+testWorkspaceID, `{"name":"New"}`)
+	req.SetPathValue("id", testWorkspaceID)
+	recorder := httptest.NewRecorder()
+	handler.RenameWorkspace(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+}
+
+func TestRenameWorkspaceMapsNameTaken(t *testing.T) {
+	handler := NewHandler(&stubStore{
+		findMembership: func(context.Context, string, string) (string, bool, error) {
+			return auth.RoleAdmin, true, nil
+		},
+		renameWorkspace: func(context.Context, string, string, string) (string, error) {
+			return "", ErrNameTaken
+		},
+	})
+	req := authedRequest(t, http.MethodPatch, "/v1/workspaces/"+testWorkspaceID, `{"name":"Acme"}`)
+	req.SetPathValue("id", testWorkspaceID)
+	recorder := httptest.NewRecorder()
+	handler.RenameWorkspace(recorder, req)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status=%d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestRenameWorkspaceRejectsBlankName(t *testing.T) {
+	handler := NewHandler(&stubStore{
+		findMembership: func(context.Context, string, string) (string, bool, error) {
+			return auth.RoleOwner, true, nil
+		},
+		renameWorkspace: func(context.Context, string, string, string) (string, error) {
+			t.Fatal("blank name must not reach store")
+			return "", nil
+		},
+	})
+	req := authedRequest(t, http.MethodPatch, "/v1/workspaces/"+testWorkspaceID, `{"name":"   "}`)
+	req.SetPathValue("id", testWorkspaceID)
+	recorder := httptest.NewRecorder()
+	handler.RenameWorkspace(recorder, req)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+}
+
+func TestDeleteWorkspaceDeletesForOwner(t *testing.T) {
+	var gotUser, gotWorkspace string
+	handler := NewHandler(&stubStore{
+		findMembership: func(context.Context, string, string) (string, bool, error) {
+			return auth.RoleOwner, true, nil
+		},
+		deleteWorkspace: func(_ context.Context, userID, workspaceID string) error {
+			gotUser, gotWorkspace = userID, workspaceID
+			return nil
+		},
+	})
+	req := authedRequest(t, http.MethodDelete, "/v1/workspaces/"+testWorkspaceID, "")
+	req.SetPathValue("id", testWorkspaceID)
+	recorder := httptest.NewRecorder()
+	handler.DeleteWorkspace(recorder, req)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status=%d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if gotUser != testUserID || gotWorkspace != testWorkspaceID {
+		t.Fatalf("delete args = %q %q", gotUser, gotWorkspace)
+	}
+}
+
+func TestDeleteWorkspaceRejectsAdmin(t *testing.T) {
+	handler := NewHandler(&stubStore{
+		findMembership: func(context.Context, string, string) (string, bool, error) {
+			return auth.RoleAdmin, true, nil
+		},
+		deleteWorkspace: func(context.Context, string, string) error {
+			t.Fatal("admin must not delete workspace")
+			return nil
+		},
+	})
+	req := authedRequest(t, http.MethodDelete, "/v1/workspaces/"+testWorkspaceID, "")
+	req.SetPathValue("id", testWorkspaceID)
+	recorder := httptest.NewRecorder()
+	handler.DeleteWorkspace(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+}
+
+func TestDeleteWorkspaceRequiresMembership(t *testing.T) {
+	handler := NewHandler(&stubStore{
+		findMembership: func(context.Context, string, string) (string, bool, error) {
+			return "", false, nil
+		},
+		deleteWorkspace: func(context.Context, string, string) error {
+			t.Fatal("non-member must not delete")
+			return nil
+		},
+	})
+	req := authedRequest(t, http.MethodDelete, "/v1/workspaces/"+testWorkspaceID, "")
+	req.SetPathValue("id", testWorkspaceID)
+	recorder := httptest.NewRecorder()
+	handler.DeleteWorkspace(recorder, req)
+	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status=%d, body=%s", recorder.Code, recorder.Body.String())
 	}
 }

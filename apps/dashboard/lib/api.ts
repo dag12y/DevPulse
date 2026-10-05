@@ -326,6 +326,17 @@ export function createWorkspace(name: string): Promise<WorkspaceMembership> {
   });
 }
 
+export function renameWorkspace(workspaceID: string, name: string): Promise<WorkspaceMembership> {
+  return fetchAPI<WorkspaceMembership>(`/v1/workspaces/${workspaceID}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteWorkspace(workspaceID: string): Promise<void> {
+  return fetchAPI<void>(`/v1/workspaces/${workspaceID}`, { method: "DELETE" });
+}
+
 export function listMembers(workspaceID: string): Promise<WorkspaceMember[]> {
   return fetchAPI<WorkspaceMember[]>(`/v1/workspaces/${workspaceID}/members`);
 }
