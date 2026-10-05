@@ -24,7 +24,15 @@ type Result struct {
 	PageViewsDeleted  int64
 	SessionsDeleted   int64
 	VisitorsDeleted   int64
+	// AuthSessionsDeleted counts expired or revoked login rows removed.
+	AuthSessionsDeleted int64
 }
+
+// revokedSessionGrace is how long a revoked or expired login row is kept
+// before deletion. The grace period means an operator still sees recent
+// logouts, and it guarantees a token stays valid for at least as long as
+// its own expires_at even if a sweep runs moments before expiry.
+const revokedSessionGrace = 24 * time.Hour
 
 // Cutoff returns the instant before which a project's rows expire.
 func Cutoff(now time.Time, retentionDays int) time.Time {
@@ -50,10 +58,12 @@ func RunOnce(ctx context.Context, pool *pgxpool.Pool, now time.Time) (Result, er
 		if _, err := pool.Exec(ctx, `UPDATE retention_runs SET
 			finished_at = NOW(), projects_processed = $2,
 			page_views_deleted = $3, sessions_deleted = $4,
-			visitors_deleted = $5, error = NULLIF($6, '')
+			visitors_deleted = $5, auth_sessions_deleted = $6,
+			error = NULLIF($7, '')
 			WHERE id = $1`,
 			runID, result.ProjectsProcessed, result.PageViewsDeleted,
-			result.SessionsDeleted, result.VisitorsDeleted, message); err != nil {
+			result.SessionsDeleted, result.VisitorsDeleted,
+			result.AuthSessionsDeleted, message); err != nil {
 			return result, fmt.Errorf("finish retention run: %w", err)
 		}
 		return result, runErr
@@ -92,7 +102,32 @@ func RunOnce(ctx context.Context, pool *pgxpool.Pool, now time.Time) (Result, er
 		result.SessionsDeleted += deleted.sessions
 		result.VisitorsDeleted += deleted.visitors
 	}
+
+	// Login sessions are not project analytics data and are cleaned on their
+	// own schedule. Expiry is already enforced when a session is read, so this
+	// only bounds table growth and keeps recent logouts visible.
+	authDeleted, err := purgeAuthSessions(ctx, pool, now)
+	if err != nil {
+		return finish(fmt.Errorf("purge auth sessions: %w", err))
+	}
+	result.AuthSessionsDeleted = authDeleted
+
 	return finish(nil)
+}
+
+// purgeAuthSessions deletes login rows that expired or were revoked more than
+// revokedSessionGrace ago. Live sessions are never touched, so this cannot
+// log anyone out.
+func purgeAuthSessions(ctx context.Context, pool *pgxpool.Pool, now time.Time) (int64, error) {
+	tag, err := pool.Exec(ctx,
+		`DELETE FROM user_sessions
+		  WHERE (expires_at <= $1 OR revoked_at IS NOT NULL)
+		    AND COALESCE(revoked_at, expires_at) < $2`,
+		now, now.Add(-revokedSessionGrace))
+	if err != nil {
+		return 0, fmt.Errorf("delete user_sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 type purged struct {

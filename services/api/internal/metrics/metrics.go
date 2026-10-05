@@ -43,7 +43,7 @@ func AddReport(name string) {
 }
 
 // AddRetentionRun records a retention cleanup pass.
-func AddRetentionRun(failed bool, pageViews, sessions, visitors int64) {
+func AddRetentionRun(failed bool, pageViews, sessions, visitors, authSessions int64) {
 	if failed {
 		counter(`retention_runs_total{status="error"}`).Add(1)
 		return
@@ -52,6 +52,7 @@ func AddRetentionRun(failed bool, pageViews, sessions, visitors int64) {
 	counter(`retention_rows_deleted_total{kind="page_views"}`).Add(pageViews)
 	counter(`retention_rows_deleted_total{kind="sessions"}`).Add(sessions)
 	counter(`retention_rows_deleted_total{kind="visitors"}`).Add(visitors)
+	counter(`retention_rows_deleted_total{kind="auth_sessions"}`).Add(authSessions)
 }
 
 // Expose renders counters in Prometheus text exposition format.

@@ -10,5 +10,8 @@ CREATE TABLE IF NOT EXISTS retention_runs (
     page_views_deleted BIGINT NOT NULL DEFAULT 0,
     sessions_deleted BIGINT NOT NULL DEFAULT 0,
     visitors_deleted BIGINT NOT NULL DEFAULT 0,
+    -- Login-session purges are counted separately from analytics rows.
+    -- Existing databases gain this via 006_session_cleanup.sql.
+    auth_sessions_deleted BIGINT NOT NULL DEFAULT 0,
     error TEXT
 );

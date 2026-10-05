@@ -10,7 +10,7 @@ import (
 func TestExposeRendersCounters(t *testing.T) {
 	AddIngested("accepted")
 	AddReport("summary")
-	AddRetentionRun(false, 10, 2, 1)
+	AddRetentionRun(false, 10, 2, 1, 3)
 
 	recorder := httptest.NewRecorder()
 	Expose(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))

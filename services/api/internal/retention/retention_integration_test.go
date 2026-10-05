@@ -168,3 +168,89 @@ func TestRetentionEnforcesPerProjectPolicies(t *testing.T) {
 		t.Fatalf("after rerun 30-day project = %d/%d/%d, want 1/1/1", views, sessions, visitors)
 	}
 }
+
+// TestRetentionPurgesDeadAuthSessions proves the cleanup removes login rows
+// that expired or were revoked beyond the grace period while leaving live
+// sessions and recent logouts intact, so the sweep can never log anyone out.
+func TestRetentionPurgesDeadAuthSessions(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	var userID string
+	suffix := randomHex(t, 4)
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id::text`,
+		"retention-"+suffix+"@example.com", "not-a-real-hash").Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	// name -> expiresAt offset, revokedAt offset (nil means still live).
+	seeds := map[string]struct {
+		expires  time.Duration
+		revoked  *time.Duration
+		wantGone bool
+	}{
+		"live":            {expires: 30 * 24 * time.Hour, wantGone: false},
+		"recent_logout":   {expires: 30 * 24 * time.Hour, revoked: ptr(-1 * time.Hour), wantGone: false},
+		"expired_grace":   {expires: -1 * time.Hour, wantGone: false},
+		"long_expired":    {expires: -90 * 24 * time.Hour, wantGone: true},
+		"revoked_ancient": {expires: 30 * 24 * time.Hour, revoked: ptr(-10 * 24 * time.Hour), wantGone: true},
+	}
+	for name, seed := range seeds {
+		revokedAt := any(nil)
+		if seed.revoked != nil {
+			revokedAt = now.Add(*seed.revoked)
+		}
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO user_sessions (user_id, token_hash, token_prefix, expires_at, revoked_at)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			userID, name+"-"+suffix, name[:4], now.Add(seed.expires), revokedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := RunOnce(ctx, pool, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AuthSessionsDeleted < 2 {
+		t.Fatalf("auth sessions deleted = %d, want >= 2", result.AuthSessionsDeleted)
+	}
+
+	survivors := map[string]bool{}
+	rows, err := pool.Query(ctx, `SELECT token_prefix FROM user_sessions WHERE user_id = $1`, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var prefix string
+		if err := rows.Scan(&prefix); err != nil {
+			t.Fatal(err)
+		}
+		survivors[prefix] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, seed := range seeds {
+		if got := survivors[name[:4]]; got == seed.wantGone {
+			t.Fatalf("session %q survived=%v, want gone=%v", name, got, seed.wantGone)
+		}
+	}
+
+	// The counter is observable in retention_runs, not only in logs.
+	var runAuth int64
+	if err := pool.QueryRow(ctx, `SELECT auth_sessions_deleted FROM retention_runs ORDER BY id DESC LIMIT 1`).Scan(&runAuth); err != nil {
+		t.Fatal(err)
+	}
+	if runAuth < 2 {
+		t.Fatalf("retention_runs.auth_sessions_deleted = %d, want >= 2", runAuth)
+	}
+}
+
+func ptr[T any](value T) *T { return &value }

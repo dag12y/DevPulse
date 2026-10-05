@@ -204,16 +204,17 @@ func runRetentionLoop(pool *pgxpool.Pool, intervalMinutes int) {
 	run := func() {
 		result, err := retention.RunOnce(context.Background(), pool, time.Now().UTC())
 		if err != nil {
-			metrics.AddRetentionRun(true, 0, 0, 0)
+			metrics.AddRetentionRun(true, 0, 0, 0, 0)
 			slog.Error("retention cleanup failed", "error", err)
 			return
 		}
-		metrics.AddRetentionRun(false, int64(result.PageViewsDeleted), int64(result.SessionsDeleted), int64(result.VisitorsDeleted))
+		metrics.AddRetentionRun(false, int64(result.PageViewsDeleted), int64(result.SessionsDeleted), int64(result.VisitorsDeleted), int64(result.AuthSessionsDeleted))
 		slog.Info("retention cleanup",
 			"projects", result.ProjectsProcessed,
 			"page_views", result.PageViewsDeleted,
 			"sessions", result.SessionsDeleted,
-			"visitors", result.VisitorsDeleted)
+			"visitors", result.VisitorsDeleted,
+			"auth_sessions", result.AuthSessionsDeleted)
 	}
 	run()
 	ticker := time.NewTicker(time.Duration(intervalMinutes) * time.Minute)
