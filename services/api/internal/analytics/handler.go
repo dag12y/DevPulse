@@ -78,12 +78,12 @@ func (handler *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("summary")
-	summary, err := handler.service.Summary(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
+	summary, err := handler.service.Summary(r.Context(), workspaceID, r.URL.Query().Get("project_id"), rg)
 	if err != nil {
 		writeQueryError(w, "load summary", err)
 		return
@@ -97,12 +97,12 @@ func (handler *Handler) Traffic(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("traffic")
-	points, err := handler.service.Traffic(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
+	points, err := handler.service.Traffic(r.Context(), workspaceID, r.URL.Query().Get("project_id"), rg)
 	if err != nil {
 		writeQueryError(w, "load traffic", err)
 		return
@@ -120,12 +120,12 @@ func (handler *Handler) TopPages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("pages")
-	pages, err := handler.service.TopPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, days)
+	pages, err := handler.service.TopPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, rg)
 	if err != nil {
 		writeQueryError(w, "load top pages", err)
 		return
@@ -143,12 +143,12 @@ func (handler *Handler) LandingPages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("landing-pages")
-	pages, err := handler.service.LandingPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, days)
+	pages, err := handler.service.LandingPages(r.Context(), workspaceID, r.URL.Query().Get("project_id"), limit, rg)
 	if err != nil {
 		writeQueryError(w, "load landing pages", err)
 		return
@@ -162,12 +162,12 @@ func (handler *Handler) UTM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("utm")
-	report, err := handler.service.UTMReport(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
+	report, err := handler.service.UTMReport(r.Context(), workspaceID, r.URL.Query().Get("project_id"), rg)
 	if err != nil {
 		writeQueryError(w, "load UTM report", err)
 		return
@@ -181,12 +181,12 @@ func (handler *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("sources")
-	sources, err := handler.service.Sources(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
+	sources, err := handler.service.Sources(r.Context(), workspaceID, r.URL.Query().Get("project_id"), rg)
 	if err != nil {
 		writeQueryError(w, "load sources", err)
 		return
@@ -200,12 +200,12 @@ func (handler *Handler) Countries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("countries")
-	countries, err := handler.service.Countries(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
+	countries, err := handler.service.Countries(r.Context(), workspaceID, r.URL.Query().Get("project_id"), rg)
 	if err != nil {
 		writeQueryError(w, "load countries", err)
 		return
@@ -219,12 +219,12 @@ func (handler *Handler) Devices(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	days, ok := queryInt(w, r, "days", DefaultDays)
+	rg, ok := reportRange(w, r)
 	if !ok {
 		return
 	}
 	metrics.AddReport("devices")
-	devices, err := handler.service.Devices(r.Context(), workspaceID, r.URL.Query().Get("project_id"), days)
+	devices, err := handler.service.Devices(r.Context(), workspaceID, r.URL.Query().Get("project_id"), rg)
 	if err != nil {
 		writeQueryError(w, "load devices", err)
 		return
@@ -245,6 +245,51 @@ func (handler *Handler) Realtime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, realtime)
+}
+
+// reportRange resolves the reporting window query parameters: either
+// ?days=N (ending today in the project timezone) or an explicit
+// ?start_date=&end_date= pair of project-local YYYY-MM-DD dates.
+// The pair is all-or-nothing so a typo can never silently widen a window.
+func reportRange(w http.ResponseWriter, r *http.Request) (ReportRange, bool) {
+	startValue := r.URL.Query().Get("start_date")
+	endValue := r.URL.Query().Get("end_date")
+	if startValue != "" || endValue != "" {
+		if startValue == "" || endValue == "" {
+			writeError(w, http.StatusBadRequest, "start_date and end_date must both be provided")
+			return ReportRange{}, false
+		}
+		start, err := ParseDate(startValue)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return ReportRange{}, false
+		}
+		end, err := ParseDate(endValue)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return ReportRange{}, false
+		}
+		if end.Before(start) {
+			writeError(w, http.StatusBadRequest, "start_date must not be after end_date")
+			return ReportRange{}, false
+		}
+		rg := ReportRange{Days: int(end.Sub(start).Hours()/24) + 1, EndDate: endValue}
+		if err := rg.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return ReportRange{}, false
+		}
+		return rg, true
+	}
+	days, ok := queryInt(w, r, "days", DefaultDays)
+	if !ok {
+		return ReportRange{}, false
+	}
+	rg := ReportRange{Days: days}
+	if err := rg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return ReportRange{}, false
+	}
+	return rg, true
 }
 
 func queryInt(w http.ResponseWriter, r *http.Request, name string, fallback int) (int, bool) {

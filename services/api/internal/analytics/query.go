@@ -157,17 +157,18 @@ func (repository *PostgresRepository) resolveProjectID(ctx context.Context, work
 }
 
 // windowFor returns the reporting window for a query: project-local days
-// when a project is selected, UTC otherwise.
-func windowFor(ref projectRef, hasProject bool, now time.Time, days int) Window {
+// (ending on the range's last day, or today) when a project is selected,
+// UTC otherwise.
+func windowFor(ref projectRef, hasProject bool, now time.Time, rg ReportRange) Window {
 	if !hasProject {
-		return ResolveWindow(now, "UTC", days)
+		return ResolveWindowRange(now, "UTC", rg)
 	}
-	return ResolveWindow(now, ref.timezone, days)
+	return ResolveWindowRange(now, ref.timezone, rg)
 }
 
-func (repository *PostgresRepository) Summary(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Summary, error) {
+func (repository *PostgresRepository) Summary(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) (Summary, error) {
 	var summary Summary
-	summary.Days = days
+	summary.Days = rg.Days
 
 	var ref projectRef
 	hasProject := trackingID != ""
@@ -178,7 +179,7 @@ func (repository *PostgresRepository) Summary(ctx context.Context, workspaceID, 
 			return summary, err
 		}
 	}
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	current, err := repository.summaryWindow(ctx, ref.id, window.Start, window.End)
 	if err != nil {
@@ -274,7 +275,7 @@ func (repository *PostgresRepository) newVisitors(ctx context.Context, projectID
 	return count, nil
 }
 
-func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]TrafficPoint, error) {
+func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) ([]TrafficPoint, error) {
 	points := []TrafficPoint{}
 
 	var ref projectRef
@@ -287,7 +288,7 @@ func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, 
 		}
 	}
 	timezone := SafeTimezone(ref.timezone)
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	query := `SELECT ((occurred_at AT TIME ZONE $1)::date)::text AS day,
 			COUNT(*), COUNT(DISTINCT visitor_id)
@@ -318,7 +319,7 @@ func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, 
 		return points, fmt.Errorf("iterate traffic points: %w", err)
 	}
 	// Fill days without events so charts share one axis.
-	for _, label := range DayLabels(now, timezone, days) {
+	for _, label := range DayLabelsRange(now, timezone, rg) {
 		if point, ok := byDay[label]; ok {
 			points = append(points, point)
 		} else {
@@ -328,7 +329,7 @@ func (repository *PostgresRepository) Traffic(ctx context.Context, workspaceID, 
 	return points, nil
 }
 
-func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit int, days int, now time.Time) ([]TopPage, error) {
+func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit int, rg ReportRange, now time.Time) ([]TopPage, error) {
 	pages := []TopPage{}
 
 	var ref projectRef
@@ -340,7 +341,7 @@ func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID,
 			return pages, err
 		}
 	}
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	query := `SELECT path, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS unique_visitors
 		FROM analytics_page_views
@@ -378,7 +379,7 @@ func (repository *PostgresRepository) TopPages(ctx context.Context, workspaceID,
 
 // LandingPages aggregates non-bot sessions by the first page of the
 // session. Share is the fraction of sessions starting there.
-func (repository *PostgresRepository) LandingPages(ctx context.Context, workspaceID, trackingID string, limit int, days int, now time.Time) ([]LandingPage, error) {
+func (repository *PostgresRepository) LandingPages(ctx context.Context, workspaceID, trackingID string, limit int, rg ReportRange, now time.Time) ([]LandingPage, error) {
 	pages := []LandingPage{}
 
 	var ref projectRef
@@ -390,7 +391,7 @@ func (repository *PostgresRepository) LandingPages(ctx context.Context, workspac
 			return pages, err
 		}
 	}
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	query := `SELECT COALESCE(NULLIF(landing_page, ''), '(unknown)'), COUNT(*), COUNT(DISTINCT visitor_id)
 		FROM analytics_sessions
@@ -443,7 +444,7 @@ func (repository *PostgresRepository) LandingPages(ctx context.Context, workspac
 
 // UTMReport breaks non-bot page views down by campaign source, medium
 // and campaign name. Rows without a value collapse to "(not set)".
-func (repository *PostgresRepository) UTMReport(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (UTMReport, error) {
+func (repository *PostgresRepository) UTMReport(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) (UTMReport, error) {
 	var report UTMReport
 
 	var ref projectRef
@@ -455,7 +456,7 @@ func (repository *PostgresRepository) UTMReport(ctx context.Context, workspaceID
 			return report, err
 		}
 	}
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	var err error
 	if report.Sources, err = repository.utmBreakdown(ctx, "utm_source", ref.id, window.Start, window.End); err != nil {
@@ -534,7 +535,7 @@ func (repository *PostgresRepository) utmBreakdown(ctx context.Context, column, 
 // Sources aggregates non-bot page views by traffic source. Raw
 // referrer/UTM groups come from PostgreSQL and are classified in Go
 // (ClassifySource), so known hosts collapse to friendly names.
-func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Source, error) {
+func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) ([]Source, error) {
 	sources := []Source{}
 
 	var ref projectRef
@@ -546,7 +547,7 @@ func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, 
 			return sources, err
 		}
 	}
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	query := `SELECT COALESCE(referrer, ''), COALESCE(utm_source, ''), COUNT(*), COUNT(DISTINCT visitor_id)
 		FROM analytics_page_views
@@ -600,7 +601,7 @@ func (repository *PostgresRepository) Sources(ctx context.Context, workspaceID, 
 
 // Countries aggregates non-bot page views by country code.
 // Rows without geography (NullGeoResolver era) collapse to "Unknown".
-func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Country, error) {
+func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) ([]Country, error) {
 	countries := []Country{}
 
 	var ref projectRef
@@ -612,7 +613,7 @@ func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID
 			return countries, err
 		}
 	}
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	query := `SELECT COALESCE(NULLIF(country, ''), 'Unknown'), COUNT(*), COUNT(DISTINCT visitor_id)
 		FROM analytics_page_views
@@ -659,7 +660,7 @@ func (repository *PostgresRepository) Countries(ctx context.Context, workspaceID
 }
 
 // Devices aggregates non-bot page views by device type, browser and OS.
-func (repository *PostgresRepository) Devices(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Devices, error) {
+func (repository *PostgresRepository) Devices(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) (Devices, error) {
 	var devices Devices
 
 	var ref projectRef
@@ -671,7 +672,7 @@ func (repository *PostgresRepository) Devices(ctx context.Context, workspaceID, 
 			return devices, err
 		}
 	}
-	window := windowFor(ref, hasProject, now, days)
+	window := windowFor(ref, hasProject, now, rg)
 
 	var err error
 	if devices.DeviceTypes, err = repository.breakdown(ctx, "device_type", ref.id, window.Start, window.End, 100); err != nil {

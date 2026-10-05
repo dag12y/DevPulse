@@ -8,7 +8,7 @@ Working end to end on `main`:
 
 - **Ingestion**: `POST /v1/analytics/events` validates, bot-filters, enriches (device, browser, OS, country/region via MaxMind when configured), and rate-limits per project+IP. The tracker never blocks the host site.
 - **Auth**: workspace API keys (`dpk_…`) and human login sessions (`dps_…`) with owner/admin/viewer roles, workspace isolation on every private route, member management with last-owner guards.
-- **Reports**: summary with previous-period comparison, traffic, top pages, sources, countries, devices, and 15s real-time — all scoped to the selected project, date range (24H/7/30/90D), and project timezone.
+- **Reports**: summary with previous-period comparison, traffic, top pages, sources, countries, devices, and 15s real-time — all scoped to the selected project, date range (24H/7/30/90D presets or a custom `start_date`/`end_date` range), and project timezone.
 - **Dashboard**: project + workspace switchers (persisted to URL/localStorage), install screen with copyable script tag, login/register/account pages.
 - **Privacy/retention**: raw IPs never stored, per-project retention (30/90/180/365d) enforced hourly by a cleanup worker with observable `retention_runs`.
 - **CI**: vet, gofmt, full Go suite with `-race` (unit + Postgres integration), tracker typecheck/tests/bundle, dashboard lint/build, and production image build.

@@ -9,7 +9,7 @@ import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
 
 export default function CountriesPage() {
-  const { selectedTrackingId, days } = useProject();
+  const { selectedTrackingId, range } = useProject();
   const [countries, setCountries] = useState<CountryStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,11 +22,11 @@ export default function CountriesPage() {
     }
     setLoading(true);
     setError(null);
-    getCountries(selectedTrackingId, days)
+    getCountries(selectedTrackingId, range)
       .then(setCountries)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId, days, attempt]);
+  }, [selectedTrackingId, range, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (

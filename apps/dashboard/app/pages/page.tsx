@@ -9,7 +9,7 @@ import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
 
 export default function PagesPage() {
-  const { selectedTrackingId, days } = useProject();
+  const { selectedTrackingId, range } = useProject();
   const [pages, setPages] = useState<TopPage[]>([]);
   const [landing, setLanding] = useState<LandingPage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,8 +24,8 @@ export default function PagesPage() {
     setLoading(true);
     setError(null);
     Promise.all([
-      getTopPages(50, selectedTrackingId, days),
-      getLandingPages(50, selectedTrackingId, days),
+      getTopPages(50, selectedTrackingId, range),
+      getLandingPages(50, selectedTrackingId, range),
     ])
       .then(([top, land]) => {
         setPages(top);
@@ -33,7 +33,7 @@ export default function PagesPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId, days, attempt]);
+  }, [selectedTrackingId, range, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (

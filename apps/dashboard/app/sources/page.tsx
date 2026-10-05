@@ -9,7 +9,7 @@ import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
 
 export default function SourcesPage() {
-  const { selectedTrackingId, days } = useProject();
+  const { selectedTrackingId, range } = useProject();
   const [sources, setSources] = useState<TrafficSource[]>([]);
   const [utm, setUTM] = useState<UTMReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,14 +23,14 @@ export default function SourcesPage() {
     }
     setLoading(true);
     setError(null);
-    Promise.all([getSources(selectedTrackingId, days), getUTM(selectedTrackingId, days)])
+    Promise.all([getSources(selectedTrackingId, range), getUTM(selectedTrackingId, range)])
       .then(([classified, campaigns]) => {
         setSources(classified);
         setUTM(campaigns);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId, days, attempt]);
+  }, [selectedTrackingId, range, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (

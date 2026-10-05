@@ -33,7 +33,7 @@ func TestReportsNewVsReturning(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := repository.Summary(ctx, project.workspaceID, project.trackingID, 7, now)
+	summary, err := repository.Summary(ctx, project.workspaceID, project.trackingID, ReportRange{Days: 7}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestReportsLandingPages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pages, err := repository.LandingPages(ctx, project.workspaceID, project.trackingID, 20, 7, now)
+	pages, err := repository.LandingPages(ctx, project.workspaceID, project.trackingID, 20, ReportRange{Days: 7}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestReportsUTM(t *testing.T) {
 		}
 	}
 
-	report, err := repository.UTMReport(ctx, project.workspaceID, project.trackingID, 7, now)
+	report, err := repository.UTMReport(ctx, project.workspaceID, project.trackingID, ReportRange{Days: 7}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestReportsScreens(t *testing.T) {
 		}
 	}
 
-	devices, err := repository.Devices(ctx, project.workspaceID, project.trackingID, 7, now)
+	devices, err := repository.Devices(ctx, project.workspaceID, project.trackingID, ReportRange{Days: 7}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

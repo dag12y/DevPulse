@@ -201,36 +201,56 @@ function withProject(path: string, projectId?: string): string {
   return `${path}${separator}project_id=${encodeURIComponent(projectId)}`;
 }
 
-export function getSummary(projectId?: string, days = 30): Promise<AnalyticsSummary> {
-  return fetchAPI<AnalyticsSummary>(withProject(`/v1/analytics/summary?days=${days}`, projectId));
+export interface ReportRange {
+  days?: number;
+  start_date?: string;
+  end_date?: string;
 }
 
-export function getTraffic(days = 30, projectId?: string): Promise<TrafficData[]> {
-  return fetchAPI<TrafficData[]>(withProject(`/v1/analytics/traffic?days=${days}`, projectId));
+export const MAX_RANGE_DAYS = 365;
+
+export function rangeSpanDays(start: string, end: string): number {
+  return Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1;
 }
 
-export function getTopPages(limit = 20, projectId?: string, days = 30): Promise<TopPage[]> {
-  return fetchAPI<TopPage[]>(withProject(`/v1/analytics/pages?limit=${limit}&days=${days}`, projectId));
+function rangeQuery(range?: ReportRange | number): string {
+  const normalized: ReportRange = typeof range === "number" || range == null ? { days: range ?? 30 } : range;
+  if (normalized.start_date && normalized.end_date) {
+    return `start_date=${encodeURIComponent(normalized.start_date)}&end_date=${encodeURIComponent(normalized.end_date)}`;
+  }
+  return `days=${normalized.days ?? 30}`;
 }
 
-export function getLandingPages(limit = 20, projectId?: string, days = 30): Promise<LandingPage[]> {
-  return fetchAPI<LandingPage[]>(withProject(`/v1/analytics/landing-pages?limit=${limit}&days=${days}`, projectId));
+export function getSummary(projectId?: string, range: ReportRange | number = 30): Promise<AnalyticsSummary> {
+  return fetchAPI<AnalyticsSummary>(withProject(`/v1/analytics/summary?${rangeQuery(range)}`, projectId));
 }
 
-export function getUTM(projectId?: string, days = 30): Promise<UTMReport> {
-  return fetchAPI<UTMReport>(withProject(`/v1/analytics/utm?days=${days}`, projectId));
+export function getTraffic(range: ReportRange | number = 30, projectId?: string): Promise<TrafficData[]> {
+  return fetchAPI<TrafficData[]>(withProject(`/v1/analytics/traffic?${rangeQuery(range)}`, projectId));
 }
 
-export function getSources(projectId?: string, days = 30): Promise<TrafficSource[]> {
-  return fetchAPI<TrafficSource[]>(withProject(`/v1/analytics/sources?days=${days}`, projectId));
+export function getTopPages(limit = 20, projectId?: string, range: ReportRange | number = 30): Promise<TopPage[]> {
+  return fetchAPI<TopPage[]>(withProject(`/v1/analytics/pages?limit=${limit}&${rangeQuery(range)}`, projectId));
 }
 
-export function getCountries(projectId?: string, days = 30): Promise<CountryStats[]> {
-  return fetchAPI<CountryStats[]>(withProject(`/v1/analytics/countries?days=${days}`, projectId));
+export function getLandingPages(limit = 20, projectId?: string, range: ReportRange | number = 30): Promise<LandingPage[]> {
+  return fetchAPI<LandingPage[]>(withProject(`/v1/analytics/landing-pages?limit=${limit}&${rangeQuery(range)}`, projectId));
 }
 
-export function getDevices(projectId?: string, days = 30): Promise<DevicesStats> {
-  return fetchAPI<DevicesStats>(withProject(`/v1/analytics/devices?days=${days}`, projectId));
+export function getUTM(projectId?: string, range: ReportRange | number = 30): Promise<UTMReport> {
+  return fetchAPI<UTMReport>(withProject(`/v1/analytics/utm?${rangeQuery(range)}`, projectId));
+}
+
+export function getSources(projectId?: string, range: ReportRange | number = 30): Promise<TrafficSource[]> {
+  return fetchAPI<TrafficSource[]>(withProject(`/v1/analytics/sources?${rangeQuery(range)}`, projectId));
+}
+
+export function getCountries(projectId?: string, range: ReportRange | number = 30): Promise<CountryStats[]> {
+  return fetchAPI<CountryStats[]>(withProject(`/v1/analytics/countries?${rangeQuery(range)}`, projectId));
+}
+
+export function getDevices(projectId?: string, range: ReportRange | number = 30): Promise<DevicesStats> {
+  return fetchAPI<DevicesStats>(withProject(`/v1/analytics/devices?${rangeQuery(range)}`, projectId));
 }
 
 export interface RealtimePage {

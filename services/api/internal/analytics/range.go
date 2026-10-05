@@ -51,14 +51,69 @@ func ResolveWindow(now time.Time, timezone string, days int) Window {
 	}
 	localNow := now.In(location)
 	midnight := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
-	end := midnight.AddDate(0, 0, 1)
-	start := midnight.AddDate(0, 0, -(days - 1))
+	return windowEndingAt(midnight, days)
+}
+
+// windowEndingAt builds the half-open window whose last project-local day
+// ends at endMidnight (the midnight that starts the following day).
+func windowEndingAt(endMidnight time.Time, days int) Window {
+	end := endMidnight.AddDate(0, 0, 1)
+	start := endMidnight.AddDate(0, 0, -(days - 1))
 	return Window{
 		Start:     start.UTC(),
 		End:       end.UTC(),
 		PrevStart: start.AddDate(0, 0, -days).UTC(),
 		PrevEnd:   start.UTC(),
 	}
+}
+
+// ReportRange describes a reporting window: a length in whole project-local
+// days plus an optional last day (YYYY-MM-DD in the project timezone). An
+// empty EndDate means "ending today", which preserves the ?days= behavior.
+type ReportRange struct {
+	Days    int    `json:"days"`
+	EndDate string `json:"end_date,omitempty"`
+}
+
+// ParseDate parses a strict YYYY-MM-DD date, rejecting other layouts so a
+// malformed value can never silently shift a window.
+func ParseDate(value string) (time.Time, error) {
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil || parsed.Format("2006-01-02") != value {
+		return time.Time{}, fmt.Errorf("date must be in YYYY-MM-DD format")
+	}
+	return parsed, nil
+}
+
+// Validate rejects out-of-range or inconsistent reporting windows.
+func (rg ReportRange) Validate() error {
+	if err := ValidateDays(rg.Days); err != nil {
+		return err
+	}
+	if rg.EndDate != "" {
+		if _, err := ParseDate(rg.EndDate); err != nil {
+			return &ValidationError{err: err}
+		}
+	}
+	return nil
+}
+
+// ResolveWindowRange resolves the window for a ReportRange in the given
+// timezone. now only anchors windows that end today.
+func ResolveWindowRange(now time.Time, timezone string, rg ReportRange) Window {
+	if rg.EndDate == "" {
+		return ResolveWindow(now, timezone, rg.Days)
+	}
+	location, err := time.LoadLocation(SafeTimezone(timezone))
+	if err != nil {
+		location = time.UTC
+	}
+	end, err := ParseDate(rg.EndDate)
+	if err != nil {
+		return ResolveWindow(now, timezone, rg.Days)
+	}
+	midnight := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, location)
+	return windowEndingAt(midnight, rg.Days)
 }
 
 // DayLabels returns project-local YYYY-MM-DD labels for the current
@@ -73,9 +128,31 @@ func DayLabels(now time.Time, timezone string, days int) []string {
 	}
 	localNow := now.In(location)
 	midnight := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
+	return labelsEndingAt(midnight, days)
+}
+
+// DayLabelsRange returns labels for a ReportRange, oldest first.
+func DayLabelsRange(now time.Time, timezone string, rg ReportRange) []string {
+	if rg.EndDate == "" {
+		return DayLabels(now, timezone, rg.Days)
+	}
+	location, err := time.LoadLocation(SafeTimezone(timezone))
+	if err != nil {
+		location = time.UTC
+	}
+	end, err := ParseDate(rg.EndDate)
+	if err != nil {
+		return DayLabels(now, timezone, rg.Days)
+	}
+	midnight := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, location)
+	return labelsEndingAt(midnight, rg.Days)
+}
+
+// labelsEndingAt emits days labels walking back from endMidnight.
+func labelsEndingAt(endMidnight time.Time, days int) []string {
 	labels := make([]string, 0, days)
-	for i := days - 1; i >= 0; i-- {
-		labels = append(labels, midnight.AddDate(0, 0, -i).Format("2006-01-02"))
+	for i := days; i >= 1; i-- {
+		labels = append(labels, endMidnight.AddDate(0, 0, -i+1).Format("2006-01-02"))
 	}
 	return labels
 }

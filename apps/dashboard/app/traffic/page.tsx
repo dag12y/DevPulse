@@ -9,7 +9,7 @@ import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
 
 export default function TrafficPage() {
-  const { selectedTrackingId, days, setDays } = useProject();
+  const { selectedTrackingId, range } = useProject();
   const [traffic, setTraffic] = useState<TrafficData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,11 +22,11 @@ export default function TrafficPage() {
     }
     setLoading(true);
     setError(null);
-    getTraffic(days, selectedTrackingId)
+    getTraffic(range, selectedTrackingId)
       .then(setTraffic)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [days, selectedTrackingId, attempt]);
+  }, [range, selectedTrackingId, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (
@@ -49,22 +49,6 @@ export default function TrafficPage() {
   return (
     <div className="p-6 space-y-6">
       <ReportHeader title="Traffic" />
-      <div className="flex items-center justify-end">
-        <label className="inline-flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Range
-          <select
-            aria-label="Traffic date range"
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-          >
-            <option value={1}>Last 24 hours</option>
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-          </select>
-        </label>
-      </div>
 
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
         <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">Page Views</h3>

@@ -9,7 +9,7 @@ import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
 
 export default function OverviewPage() {
-  const { selectedTrackingId, days } = useProject();
+  const { selectedTrackingId, days, range } = useProject();
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [traffic, setTraffic] = useState<TrafficData[]>([]);
   const [topPages, setTopPages] = useState<TopPage[]>([]);
@@ -25,9 +25,9 @@ export default function OverviewPage() {
     setLoading(true);
     setError(null);
     Promise.all([
-      getSummary(selectedTrackingId, days),
-      getTraffic(days, selectedTrackingId),
-      getTopPages(10, selectedTrackingId, days),
+      getSummary(selectedTrackingId, range),
+      getTraffic(range, selectedTrackingId),
+      getTopPages(10, selectedTrackingId, range),
     ])
       .then(([s, t, p]) => {
         setSummary(s);
@@ -36,7 +36,7 @@ export default function OverviewPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId, days, attempt]);
+  }, [selectedTrackingId, range, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (

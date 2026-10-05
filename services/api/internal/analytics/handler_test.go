@@ -16,14 +16,14 @@ const testWorkspaceID = "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380b22"
 
 type stubRepository struct {
 	ingest    func(context.Context, Event, string) error
-	summary   func(context.Context, string, string, int, time.Time) (Summary, error)
-	traffic   func(context.Context, string, string, int, time.Time) ([]TrafficPoint, error)
-	topPages  func(context.Context, string, string, int, int, time.Time) ([]TopPage, error)
-	landing   func(context.Context, string, string, int, int, time.Time) ([]LandingPage, error)
-	utm       func(context.Context, string, string, int, time.Time) (UTMReport, error)
-	sources   func(context.Context, string, string, int, time.Time) ([]Source, error)
-	countries func(context.Context, string, string, int, time.Time) ([]Country, error)
-	devices   func(context.Context, string, string, int, time.Time) (Devices, error)
+	summary   func(context.Context, string, string, ReportRange, time.Time) (Summary, error)
+	traffic   func(context.Context, string, string, ReportRange, time.Time) ([]TrafficPoint, error)
+	topPages  func(context.Context, string, string, int, ReportRange, time.Time) ([]TopPage, error)
+	landing   func(context.Context, string, string, int, ReportRange, time.Time) ([]LandingPage, error)
+	utm       func(context.Context, string, string, ReportRange, time.Time) (UTMReport, error)
+	sources   func(context.Context, string, string, ReportRange, time.Time) ([]Source, error)
+	countries func(context.Context, string, string, ReportRange, time.Time) ([]Country, error)
+	devices   func(context.Context, string, string, ReportRange, time.Time) (Devices, error)
 	realtime  func(context.Context, string, string) (Realtime, error)
 }
 
@@ -31,42 +31,42 @@ func (stub *stubRepository) Ingest(ctx context.Context, event Event, originHost 
 	return stub.ingest(ctx, event, originHost)
 }
 
-func (stub *stubRepository) Summary(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Summary, error) {
-	return stub.summary(ctx, workspaceID, trackingID, days, now)
+func (stub *stubRepository) Summary(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) (Summary, error) {
+	return stub.summary(ctx, workspaceID, trackingID, rg, now)
 }
 
-func (stub *stubRepository) Traffic(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]TrafficPoint, error) {
-	return stub.traffic(ctx, workspaceID, trackingID, days, now)
+func (stub *stubRepository) Traffic(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) ([]TrafficPoint, error) {
+	return stub.traffic(ctx, workspaceID, trackingID, rg, now)
 }
 
-func (stub *stubRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit, days int, now time.Time) ([]TopPage, error) {
-	return stub.topPages(ctx, workspaceID, trackingID, limit, days, now)
+func (stub *stubRepository) TopPages(ctx context.Context, workspaceID, trackingID string, limit int, rg ReportRange, now time.Time) ([]TopPage, error) {
+	return stub.topPages(ctx, workspaceID, trackingID, limit, rg, now)
 }
 
-func (stub *stubRepository) LandingPages(ctx context.Context, workspaceID, trackingID string, limit, days int, now time.Time) ([]LandingPage, error) {
+func (stub *stubRepository) LandingPages(ctx context.Context, workspaceID, trackingID string, limit int, rg ReportRange, now time.Time) ([]LandingPage, error) {
 	if stub.landing == nil {
 		return []LandingPage{}, nil
 	}
-	return stub.landing(ctx, workspaceID, trackingID, limit, days, now)
+	return stub.landing(ctx, workspaceID, trackingID, limit, rg, now)
 }
 
-func (stub *stubRepository) UTMReport(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (UTMReport, error) {
+func (stub *stubRepository) UTMReport(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) (UTMReport, error) {
 	if stub.utm == nil {
 		return UTMReport{}, nil
 	}
-	return stub.utm(ctx, workspaceID, trackingID, days, now)
+	return stub.utm(ctx, workspaceID, trackingID, rg, now)
 }
 
-func (stub *stubRepository) Sources(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Source, error) {
-	return stub.sources(ctx, workspaceID, trackingID, days, now)
+func (stub *stubRepository) Sources(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) ([]Source, error) {
+	return stub.sources(ctx, workspaceID, trackingID, rg, now)
 }
 
-func (stub *stubRepository) Countries(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) ([]Country, error) {
-	return stub.countries(ctx, workspaceID, trackingID, days, now)
+func (stub *stubRepository) Countries(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) ([]Country, error) {
+	return stub.countries(ctx, workspaceID, trackingID, rg, now)
 }
 
-func (stub *stubRepository) Devices(ctx context.Context, workspaceID, trackingID string, days int, now time.Time) (Devices, error) {
-	return stub.devices(ctx, workspaceID, trackingID, days, now)
+func (stub *stubRepository) Devices(ctx context.Context, workspaceID, trackingID string, rg ReportRange, now time.Time) (Devices, error) {
+	return stub.devices(ctx, workspaceID, trackingID, rg, now)
 }
 
 func (stub *stubRepository) Realtime(ctx context.Context, workspaceID, trackingID string) (Realtime, error) {
@@ -234,40 +234,40 @@ func TestIngestPassesOriginHost(t *testing.T) {
 func queryHandler() *Handler {
 	return NewHandler(NewService(&stubRepository{
 		ingest: func(context.Context, Event, string) error { return nil },
-		summary: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) (Summary, error) {
+		summary: func(_ context.Context, workspaceID, _ string, _ ReportRange, _ time.Time) (Summary, error) {
 			if workspaceID != testWorkspaceID {
 				return Summary{}, ErrUnknownProject
 			}
 			return Summary{TotalPageViews: 10, UniqueVisitors: 4, Sessions: 5, BounceRate: 0.2, AvgSessionDuration: 60}, nil
 		},
-		traffic: func(_ context.Context, workspaceID, _ string, days int, _ time.Time) ([]TrafficPoint, error) {
+		traffic: func(_ context.Context, workspaceID, _ string, rg ReportRange, _ time.Time) ([]TrafficPoint, error) {
 			if workspaceID != testWorkspaceID {
 				return []TrafficPoint{}, ErrUnknownProject
 			}
-			if days == 99 {
+			if rg.Days == 99 {
 				return []TrafficPoint{}, ErrUnknownProject
 			}
 			return []TrafficPoint{{Date: "2026-09-30", PageViews: 3, Visitors: 2}}, nil
 		},
-		topPages: func(_ context.Context, workspaceID, _ string, _, _ int, _ time.Time) ([]TopPage, error) {
+		topPages: func(_ context.Context, workspaceID, _ string, _ int, _ ReportRange, _ time.Time) ([]TopPage, error) {
 			if workspaceID != testWorkspaceID {
 				return []TopPage{}, ErrUnknownProject
 			}
 			return []TopPage{{Path: "/about", Views: 7, UniqueVisitors: 5}}, nil
 		},
-		sources: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) ([]Source, error) {
+		sources: func(_ context.Context, workspaceID, _ string, _ ReportRange, _ time.Time) ([]Source, error) {
 			if workspaceID != testWorkspaceID {
 				return []Source{}, ErrUnknownProject
 			}
 			return []Source{{Source: "Google", Category: "Organic Search", PageViews: 7, Visitors: 5, Percentage: 70}}, nil
 		},
-		countries: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) ([]Country, error) {
+		countries: func(_ context.Context, workspaceID, _ string, _ ReportRange, _ time.Time) ([]Country, error) {
 			if workspaceID != testWorkspaceID {
 				return []Country{}, ErrUnknownProject
 			}
 			return []Country{{Country: "ET", PageViews: 7, Visitors: 5, Percentage: 70}}, nil
 		},
-		devices: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) (Devices, error) {
+		devices: func(_ context.Context, workspaceID, _ string, _ ReportRange, _ time.Time) (Devices, error) {
 			if workspaceID != testWorkspaceID {
 				return Devices{}, ErrUnknownProject
 			}
@@ -399,6 +399,52 @@ func TestQueryRejectsInvalidTrackingID(t *testing.T) {
 	}
 }
 
+func TestReportsAcceptCustomDateRange(t *testing.T) {
+	var captured ReportRange
+	handler := NewHandler(NewService(&stubRepository{
+		ingest: func(context.Context, Event, string) error { return nil },
+		summary: func(_ context.Context, workspaceID, _ string, rg ReportRange, _ time.Time) (Summary, error) {
+			if workspaceID != testWorkspaceID {
+				return Summary{}, ErrUnknownProject
+			}
+			captured = rg
+			return Summary{TotalPageViews: 3}, nil
+		},
+	}))
+	recorder := httptest.NewRecorder()
+	handler.Summary(recorder, authedQuery("/v1/analytics/summary?start_date=2026-09-01&end_date=2026-09-15"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if captured.Days != 15 || captured.EndDate != "2026-09-15" {
+		t.Fatalf("captured = %+v, want {Days:15 EndDate:2026-09-15}", captured)
+	}
+}
+
+func TestReportsRejectInvalidCustomDateRange(t *testing.T) {
+	targets := []string{
+		"/v1/analytics/traffic?start_date=2026-09-01",                     // missing end
+		"/v1/analytics/traffic?end_date=2026-09-15",                       // missing start
+		"/v1/analytics/traffic?start_date=2026-09-15&end_date=2026-09-01", // reversed
+		"/v1/analytics/traffic?start_date=nope&end_date=2026-09-15",       // malformed start
+		"/v1/analytics/traffic?start_date=2026-09-01&end_date=nope",       // malformed end
+		"/v1/analytics/traffic?start_date=2024-01-01&end_date=2025-06-01", // span over 365 days
+	}
+	for _, target := range targets {
+		recorder := httptest.NewRecorder()
+		queryHandler().Traffic(recorder, authedQuery(target))
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("target=%s status=%d body=%s", target, recorder.Code, recorder.Body.String())
+		}
+	}
+	// days alongside a custom range is allowed: the explicit dates win.
+	recorder := httptest.NewRecorder()
+	queryHandler().Traffic(recorder, authedQuery("/v1/analytics/traffic?start_date=2026-09-01&end_date=2026-09-15&days=7"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("days alongside custom range must be ignored, status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestSourcesReturnsMetrics(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	queryHandler().Sources(recorder, authedQuery("/v1/analytics/sources"))
@@ -461,7 +507,7 @@ func TestLandingPagesRequiresAuth(t *testing.T) {
 
 func TestLandingPagesReturnsMetrics(t *testing.T) {
 	handler := NewHandler(NewService(&stubRepository{
-		landing: func(_ context.Context, workspaceID, _ string, _, _ int, _ time.Time) ([]LandingPage, error) {
+		landing: func(_ context.Context, workspaceID, _ string, _ int, _ ReportRange, _ time.Time) ([]LandingPage, error) {
 			if workspaceID != testWorkspaceID {
 				return []LandingPage{}, ErrUnknownProject
 			}
@@ -498,7 +544,7 @@ func TestUTMRequiresAuth(t *testing.T) {
 
 func TestUTMReturnsMetrics(t *testing.T) {
 	handler := NewHandler(NewService(&stubRepository{
-		utm: func(_ context.Context, workspaceID, _ string, _ int, _ time.Time) (UTMReport, error) {
+		utm: func(_ context.Context, workspaceID, _ string, _ ReportRange, _ time.Time) (UTMReport, error) {
 			if workspaceID != testWorkspaceID {
 				return UTMReport{}, ErrUnknownProject
 			}
@@ -523,7 +569,7 @@ func TestUTMReturnsMetrics(t *testing.T) {
 
 func TestSummaryIncludesNewVsReturning(t *testing.T) {
 	handler := NewHandler(NewService(&stubRepository{
-		summary: func(context.Context, string, string, int, time.Time) (Summary, error) {
+		summary: func(context.Context, string, string, ReportRange, time.Time) (Summary, error) {
 			return Summary{TotalPageViews: 10, UniqueVisitors: 4, NewVisitors: 3, ReturningVisitors: 1}, nil
 		},
 	}))

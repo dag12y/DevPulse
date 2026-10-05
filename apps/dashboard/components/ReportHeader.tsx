@@ -10,9 +10,12 @@ interface ReportHeaderProps {
 }
 
 export default function ReportHeader({ title, showDateRange = true }: ReportHeaderProps) {
-  const { selectedProject, selectedTrackingId, days, loading, error, projects } = useProject();
+  const { selectedProject, selectedTrackingId, days, presetDays, customRange, loading, error, projects } =
+    useProject();
 
-  const rangeLabel = DATE_RANGES.find((r) => r.days === days)?.label ?? `${days} days`;
+  const rangeLabel = customRange
+    ? `${customRange.start} → ${customRange.end}`
+    : DATE_RANGES.find((r) => r.days === presetDays)?.label ?? `${days} days`;
 
   if (loading) {
     return (

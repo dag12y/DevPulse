@@ -37,7 +37,7 @@ function BreakdownTable({ title, entries, csvFilename }: { title: string; entrie
 }
 
 export default function DevicesPage() {
-  const { selectedTrackingId, days } = useProject();
+  const { selectedTrackingId, range } = useProject();
   const [devices, setDevices] = useState<DevicesStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,11 +50,11 @@ export default function DevicesPage() {
     }
     setLoading(true);
     setError(null);
-    getDevices(selectedTrackingId, days)
+    getDevices(selectedTrackingId, range)
       .then(setDevices)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [selectedTrackingId, days, attempt]);
+  }, [selectedTrackingId, range, attempt]);
 
   if (!selectedTrackingId && !loading) {
     return (

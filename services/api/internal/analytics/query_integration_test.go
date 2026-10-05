@@ -124,7 +124,7 @@ func TestQueryIsolationAcrossWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summaryA, err := repository.Summary(ctx, projectA.workspaceID, projectA.trackingID, 30, now)
+	summaryA, err := repository.Summary(ctx, projectA.workspaceID, projectA.trackingID, ReportRange{Days: 30}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,15 +133,15 @@ func TestQueryIsolationAcrossWorkspaces(t *testing.T) {
 	}
 
 	// Project B's tracking ID under workspace A must not resolve.
-	if _, err := repository.Summary(ctx, projectA.workspaceID, projectB.trackingID, 30, now); err != ErrUnknownProject {
+	if _, err := repository.Summary(ctx, projectA.workspaceID, projectB.trackingID, ReportRange{Days: 30}, now); err != ErrUnknownProject {
 		t.Fatalf("cross-workspace read err = %v, want ErrUnknownProject", err)
 	}
-	if _, err := repository.Traffic(ctx, projectA.workspaceID, projectB.trackingID, 7, now); err != ErrUnknownProject {
+	if _, err := repository.Traffic(ctx, projectA.workspaceID, projectB.trackingID, ReportRange{Days: 7}, now); err != ErrUnknownProject {
 		t.Fatalf("cross-workspace traffic err = %v, want ErrUnknownProject", err)
 	}
 
 	// Unknown tracking IDs behave identically (no workspace leak).
-	if _, err := repository.Summary(ctx, projectA.workspaceID, "dp_nope_missing", 30, now); err != ErrUnknownProject {
+	if _, err := repository.Summary(ctx, projectA.workspaceID, "dp_nope_missing", ReportRange{Days: 30}, now); err != ErrUnknownProject {
 		t.Fatalf("unknown project err = %v, want ErrUnknownProject", err)
 	}
 }
@@ -169,7 +169,7 @@ func TestQueryWindowFiltering(t *testing.T) {
 		}
 	}
 
-	summary, err := repository.Summary(ctx, project.workspaceID, project.trackingID, 7, now)
+	summary, err := repository.Summary(ctx, project.workspaceID, project.trackingID, ReportRange{Days: 7}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestQueryWindowFiltering(t *testing.T) {
 		t.Fatalf("page views change = %v, want +100%%", summary.PageViewsChange)
 	}
 
-	pages, err := repository.TopPages(ctx, project.workspaceID, project.trackingID, 10, 7, now)
+	pages, err := repository.TopPages(ctx, project.workspaceID, project.trackingID, 10, ReportRange{Days: 7}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestQueryWindowFiltering(t *testing.T) {
 	}
 
 	// A 365-day window must include the merely-old event but not the ancient one.
-	wide, err := repository.Summary(ctx, project.workspaceID, project.trackingID, 365, now)
+	wide, err := repository.Summary(ctx, project.workspaceID, project.trackingID, ReportRange{Days: 365}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestTrafficRespectsProjectTimezone(t *testing.T) {
 	if err := repository.Ingest(ctx, seedEvent(t, utcProject.trackingID, "edge-visitor", edge, "/edge"), ""); err != nil {
 		t.Fatal(err)
 	}
-	utcPoints, err := repository.Traffic(ctx, utcProject.workspaceID, utcProject.trackingID, 1, now)
+	utcPoints, err := repository.Traffic(ctx, utcProject.workspaceID, utcProject.trackingID, ReportRange{Days: 1}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestTrafficRespectsProjectTimezone(t *testing.T) {
 		t.Fatalf("UTC control bucket = %+v, want zero views", utcPoints)
 	}
 
-	points, err := repository.Traffic(ctx, addis.workspaceID, addis.trackingID, 1, now)
+	points, err := repository.Traffic(ctx, addis.workspaceID, addis.trackingID, ReportRange{Days: 1}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,5 +251,50 @@ func TestTrafficRespectsProjectTimezone(t *testing.T) {
 	wantLabel := DayLabels(now, "Africa/Addis_Ababa", 1)[0]
 	if points[0].Date != wantLabel {
 		t.Fatalf("bucket label = %q, want %q", points[0].Date, wantLabel)
+	}
+}
+
+// TestQueryCustomDateRange proves a custom end_date window counts only the
+// events inside its bounds and labels traffic through the end date.
+func TestQueryCustomDateRange(t *testing.T) {
+	pool := testDatabase(t)
+	ctx := context.Background()
+	repository := NewRepository(pool)
+	now := time.Now().UTC()
+
+	project := seedProjectWithTimezone(t, ctx, pool, "UTC")
+	endDate := now.AddDate(0, 0, -1).Format("2006-01-02")
+	rg := ReportRange{Days: 3, EndDate: endDate}
+	window := ResolveWindowRange(now, "UTC", rg)
+
+	inside := seedEvent(t, project.trackingID, "custom-inside", window.Start.Add(time.Hour), "/inside")
+	tooOld := seedEvent(t, project.trackingID, "custom-old", window.Start.AddDate(0, 0, -7), "/old")
+	tooNew := seedEvent(t, project.trackingID, "custom-new", now, "/new")
+	for _, event := range []Event{inside, tooOld, tooNew} {
+		if err := repository.Ingest(ctx, event, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	summary, err := repository.Summary(ctx, project.workspaceID, project.trackingID, rg, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.TotalPageViews != 1 || summary.UniqueVisitors != 1 {
+		t.Fatalf("custom window = %d views / %d visitors, want 1/1 (full %+v)", summary.TotalPageViews, summary.UniqueVisitors, summary)
+	}
+	if summary.PrevPageViews != 0 {
+		t.Fatalf("previous window views = %d, want 0", summary.PrevPageViews)
+	}
+
+	points, err := repository.Traffic(ctx, project.workspaceID, project.trackingID, rg, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("traffic points = %d, want 3 custom days: %+v", len(points), points)
+	}
+	if points[len(points)-1].Date != endDate {
+		t.Fatalf("last traffic label = %q, want %q", points[len(points)-1].Date, endDate)
 	}
 }
