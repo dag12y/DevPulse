@@ -1,35 +1,34 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
 import Providers from "@/components/Providers";
+import AppShell from "@/components/AppShell";
+
+const inter = Inter({ subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
-  title: "DevPulse",
-  description: "Privacy-conscious web analytics for developers.",
+  title: "DevPulse — Privacy-conscious web analytics",
+  description: "Privacy-conscious web analytics for developers. No cookies, no fingerprinting.",
 };
 
-// Applies the stored (or system) theme before first paint to avoid a flash of the wrong theme.
 const themeScript = `(function(){try{var t=localStorage.getItem("devpulse.theme");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark")}}catch(e){}})();`;
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  // Matches the per-request nonce set by middleware.ts so this inline script
-  // is allowed by the CSP without resorting to 'unsafe-inline'.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+    <html lang="en" className={`h-full antialiased ${inter.className}`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col md:flex-row">
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:text-zinc-900 focus:outline-2 focus:outline-blue-600"
+          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:text-zinc-900 focus:outline-2 focus:outline-indigo-600"
         >
           Skip to main content
         </a>
         <Providers>
-          <Sidebar />
-          <main id="main-content" className="flex-1 min-w-0">{children}</main>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

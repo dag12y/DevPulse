@@ -1,77 +1,90 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import AuthShell from "@/components/ui/AuthShell";
+import Button from "@/components/ui/Button";
+import TextField from "@/components/ui/TextField";
+import PasswordField from "@/components/ui/PasswordField";
+import { friendlyAuthError } from "@/components/ui/auth-errors";
 
-export default function LoginPage() {
-  const { login } = useAuth();
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function LoginForm() {
+  const { user, loading: authLoading, login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && user) router.replace(next);
+  }, [authLoading, user, router, next]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    const trimmed = email.trim().toLowerCase();
+    let valid = true;
+    setEmailError(null);
+    setPasswordError(null);
+    setFormError(null);
+    if (!EMAIL_RE.test(trimmed)) {
+      setEmailError("Enter a valid email address.");
+      valid = false;
+    }
+    if (!password) {
+      setPasswordError("Enter your password.");
+      valid = false;
+    }
+    if (!valid) return;
     setBusy(true);
     try {
-      await login(email, password);
-      router.push("/");
+      await login(trimmed, password);
+      router.push(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed");
+      setFormError(friendlyAuthError(err instanceof Error ? err.message : "", "Sign in failed. Please try again."));
     } finally {
       setBusy(false);
     }
   };
 
+  const registerHref = next && next !== "/" ? `/register?next=${encodeURIComponent(next)}` : "/register";
+
   return (
-    <div className="mx-auto max-w-md p-6">
-      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Sign in</h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        Use your DevPulse account. API keys keep working for automation.
-      </p>
-      <form onSubmit={submit} className="mt-6 space-y-4">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email</span>
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Password</span>
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
-          />
-        </label>
-        {error && (
-          <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-            {error}
-          </p>
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to your DevPulse workspace to view analytics."
+      footer={<>No account? <Link className="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400" href={registerHref}>Create one</Link></>}
+    >
+      <form onSubmit={submit} noValidate className="space-y-4">
+        <TextField label="Email" type="email" autoComplete="email" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} error={emailError} required />
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Password</span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500" title="Password reset is coming soon">Forgot password? (soon)</span>
+          </div>
+          <PasswordField label="Password" hideLabel autoComplete="current-password" placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} error={passwordError} id="login-password" required />
+        </div>
+        {formError && (
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{formError}</p>
         )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-        >
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
+        <Button loading={busy}>{busy ? "Signing in..." : "Sign in"}</Button>
       </form>
-      <p className="mt-4 text-sm text-zinc-500">
-        No account? <Link className="underline" href="/register">Create one</Link>
-      </p>
-    </div>
+    </AuthShell>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

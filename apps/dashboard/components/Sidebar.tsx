@@ -6,6 +6,7 @@ import { useState, type ReactNode } from "react";
 import ProjectSelector from "@/components/ProjectSelector";
 import ThemeToggle from "@/components/ThemeToggle";
 import WorkspaceSelector from "@/components/WorkspaceSelector";
+import Logo from "@/components/ui/Logo";
 import { useAuth } from "@/lib/auth-context";
 
 const navItems: { href: string; label: string; icon: ReactNode }[] = [
@@ -122,9 +123,9 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             href={item.href}
             aria-current={isActive ? "page" : undefined}
             onClick={onNavigate}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${
               isActive
-                ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
                 : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
             }`}
           >
@@ -160,8 +161,8 @@ function AccountSection() {
   }
   return (
     <div className="space-y-1 px-3">
-      <Link className="block hover:underline focus-visible:outline-2 focus-visible:outline-blue-600" href="/login">Sign in</Link>
-      <Link className="block text-zinc-500 hover:underline focus-visible:outline-2 focus-visible:outline-blue-600" href="/register">Create account</Link>
+      <Link className="block rounded-md bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-indigo-600" href="/login">Sign in</Link>
+      <Link className="block px-3 py-1 text-center text-sm text-zinc-500 hover:underline focus-visible:outline-2 focus-visible:outline-indigo-600" href="/register">Create account</Link>
     </div>
   );
 }
@@ -211,9 +212,9 @@ export default function Sidebar() {
         </div>
       )}
 
-      <aside className="w-56 shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-4 hidden md:flex md:flex-col">
-        <div className="mb-8">
-          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">DevPulse</h1>
+      <aside className="w-60 shrink-0 border-r border-zinc-200 bg-white p-4 hidden md:flex md:flex-col dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mb-8 px-1">
+          <Logo />
         </div>
         <div className="mb-4">
           <WorkspaceSelector />

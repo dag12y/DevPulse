@@ -1,89 +1,95 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import AuthShell from "@/components/ui/AuthShell";
+import Button from "@/components/ui/Button";
+import TextField from "@/components/ui/TextField";
+import PasswordField from "@/components/ui/PasswordField";
+import { friendlyAuthError } from "@/components/ui/auth-errors";
 
-export default function RegisterPage() {
-  const { register } = useAuth();
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function RegisterForm() {
+  const { user, loading: authLoading, register } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && user) router.replace(next);
+  }, [authLoading, user, router, next]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    const trimmed = email.trim().toLowerCase();
+    let valid = true;
+    setEmailError(null);
+    setPasswordError(null);
+    setConfirmError(null);
+    setFormError(null);
+    if (!EMAIL_RE.test(trimmed)) {
+      setEmailError("Enter a valid email address.");
+      valid = false;
+    }
+    if (password.length < 12) {
+      setPasswordError("Use at least 12 characters.");
+      valid = false;
+    }
+    if (confirm !== password) {
+      setConfirmError("Passwords do not match.");
+      valid = false;
+    }
+    if (!valid) return;
     setBusy(true);
     try {
-      await register(email, password, workspaceName || undefined);
-      router.push("/");
+      await register(trimmed, password, workspaceName.trim() || undefined);
+      router.push(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed");
+      setFormError(friendlyAuthError(err instanceof Error ? err.message : "", "Registration failed. Please try again."));
     } finally {
       setBusy(false);
     }
   };
 
+  const loginHref = next && next !== "/" ? `/login?next=${encodeURIComponent(next)}` : "/login";
+
   return (
-    <div className="mx-auto max-w-md p-6">
-      <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Create account</h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        You get a personal workspace. Passwords need at least 12 characters.
-      </p>
-      <form onSubmit={submit} className="mt-6 space-y-4">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email</span>
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Password (12+ characters)</span>
-          <input
-            type="password"
-            required
-            minLength={12}
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Workspace name (optional)</span>
-          <input
-            type="text"
-            value={workspaceName}
-            onChange={(e) => setWorkspaceName(e.target.value)}
-            placeholder="My workspace"
-            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
-          />
-        </label>
-        {error && (
-          <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-            {error}
-          </p>
+    <AuthShell
+      title="Create your account"
+      subtitle="Get a personal workspace and start tracking in minutes."
+      footer={<>Already have an account? <Link className="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400" href={loginHref}>Sign in</Link></>}
+    >
+      <form onSubmit={submit} noValidate className="space-y-4">
+        <TextField label="Email" type="email" autoComplete="email" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} error={emailError} required />
+        <PasswordField label="Password" autoComplete="new-password" placeholder="12+ characters" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} error={passwordError} hint="Use at least 12 characters." showStrength required />
+        <PasswordField label="Confirm password" autoComplete="new-password" placeholder="Repeat your password" value={confirm} onChange={(e) => setConfirm(e.target.value)} error={confirmError} id="confirm-password" required />
+        <TextField label="Workspace name" type="text" autoComplete="organization" placeholder="My workspace (optional)" value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} hint="You can rename it later." />
+        {formError && (
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{formError}</p>
         )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-        >
-          {busy ? "Creating…" : "Create account"}
-        </button>
+        <Button loading={busy}>{busy ? "Creating..." : "Create account"}</Button>
+        <p className="text-center text-xs leading-5 text-zinc-400 dark:text-zinc-500">By creating an account you agree to the Terms and Privacy Policy.</p>
       </form>
-      <p className="mt-4 text-sm text-zinc-500">
-        Already have one? <Link className="underline" href="/login">Sign in</Link>
-      </p>
-    </div>
+    </AuthShell>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
   );
 }
