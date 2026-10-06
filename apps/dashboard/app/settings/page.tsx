@@ -6,24 +6,12 @@ import { useAuth } from "@/lib/auth-context";
 import { useProject } from "@/lib/project-context";
 import ReportHeader from "@/components/ReportHeader";
 import { ErrorState, ReportLoading } from "@/components/ReportStates";
+import Card from "@/components/ui/Card";
 
 const RETENTION_OPTIONS = [30, 90, 180, 365];
 
 const inputClass =
-  "w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 disabled:opacity-60";
-
-const primaryButton =
-  "rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 disabled:opacity-50";
-
-const secondaryButton =
-  "rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-700 dark:text-zinc-300 disabled:opacity-50";
-
-function parseDomains(value: string): string[] {
-  return value
-    .split(",")
-    .map((domain) => domain.trim().toLowerCase())
-    .filter(Boolean);
-}
+  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 function SectionCard({
   title,
@@ -35,20 +23,12 @@ function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <section
-      className={`rounded-lg border p-4 space-y-4 max-w-xl ${
-        danger ? "border-red-200 dark:border-red-900" : "border-zinc-200 dark:border-zinc-800"
-      }`}
-    >
-      <h3
-        className={`font-medium ${
-          danger ? "text-red-700 dark:text-red-300" : "text-zinc-900 dark:text-zinc-100"
-        }`}
-      >
+    <Card as="section" className={`max-w-xl space-y-4 ${danger ? "border-red-200 dark:border-red-900/60" : ""}`}>
+      <h3 className={`font-semibold ${danger ? "text-red-700 dark:text-red-300" : "text-zinc-900 dark:text-white"}`}>
         {title}
       </h3>
       {children}
-    </section>
+    </Card>
   );
 }
 
@@ -107,19 +87,23 @@ function TrackingDetails({ project }: { project: Project }) {
       <div className="space-y-2 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-zinc-500 dark:text-zinc-400">Tracking ID:</span>
-          <code className="rounded bg-zinc-100 px-2 py-0.5 font-mono text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+          <code className="rounded-md bg-zinc-100 px-2 py-0.5 font-mono text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
             {project.tracking_id}
           </code>
-          <button type="button" onClick={copyTrackingID} className={secondaryButton}>
+          <button
+            type="button"
+            onClick={copyTrackingID}
+            className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
             {copied ? "Copied!" : "Copy"}
           </button>
         </div>
         <p className="text-zinc-500 dark:text-zinc-400">
-          Created {new Date(project.created_at).toLocaleString()} · Updated{" "}
-          {new Date(project.updated_at).toLocaleString()}
+          Enabled: {project.enabled ? "yes" : "no"} · Timezone: {project.timezone} · Retention:{" "}
+          {project.retention_days} days
         </p>
         <p className="text-zinc-500 dark:text-zinc-400">
-          Status: {project.enabled ? "Active — accepting events" : "Disabled — events are rejected"}
+          Domains: {project.allowed_domains.join(", ") || "All domains"}
         </p>
       </div>
     </SectionCard>
@@ -144,11 +128,10 @@ function GeneralSettings({
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const nextDomains = parseDomains(domains);
   const dirty =
-    name.trim() !== project.name ||
-    nextDomains.join(",") !== project.allowed_domains.join(",") ||
-    timezone.trim() !== project.timezone ||
+    name !== project.name ||
+    domains !== project.allowed_domains.join(", ") ||
+    timezone !== project.timezone ||
     retentionDays !== project.retention_days ||
     enabled !== project.enabled;
 
@@ -164,14 +147,18 @@ function GeneralSettings({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!canEdit || saving || !name.trim()) return;
+    setSaving(true);
     setFormError(null);
     setSaved(false);
-    setSaving(true);
     try {
       await updateProject(project.id, {
         name: name.trim(),
-        allowed_domains: nextDomains,
-        timezone: timezone.trim(),
+        allowed_domains: domains
+          .split(",")
+          .map((d) => d.trim().toLowerCase())
+          .filter(Boolean),
+        timezone: timezone.trim() || project.timezone,
         retention_days: retentionDays,
         enabled,
       });
@@ -184,62 +171,57 @@ function GeneralSettings({
     }
   };
 
-  const fieldDisabled = !canEdit || saving;
-  const labelClass = "mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500";
-
   return (
-    <SectionCard title="General settings">
+    <SectionCard title="General">
       <form onSubmit={submit} className="space-y-4">
         <label className="block">
-          <span className={labelClass}>Name</span>
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+            Name
+          </span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
             maxLength={255}
-            disabled={fieldDisabled}
+            disabled={!canEdit || saving}
             className={inputClass}
           />
         </label>
 
         <label className="block">
-          <span className={labelClass}>
-            Allowed domains{" "}
-            <span className="normal-case font-normal">(comma-separated, empty = any domain)</span>
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+            Allowed domains <span className="normal-case font-normal">(comma-separated)</span>
           </span>
           <input
             value={domains}
             onChange={(e) => setDomains(e.target.value)}
             placeholder="example.com, www.example.com"
-            disabled={fieldDisabled}
+            disabled={!canEdit || saving}
             className={`${inputClass} font-mono`}
           />
-          <span className="mt-1 block text-xs text-zinc-500">
-            Events from other domains are rejected.
-          </span>
         </label>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="block">
-            <span className={labelClass}>Timezone</span>
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Timezone
+            </span>
             <input
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              placeholder="Africa/Addis_Ababa"
-              disabled={fieldDisabled}
+              disabled={!canEdit || saving}
               className={`${inputClass} font-mono`}
             />
-            <span className="mt-1 block text-xs text-zinc-500">
-              IANA name used to group days in reports.
-            </span>
           </label>
-
           <label className="block">
-            <span className={labelClass}>Retention</span>
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Retention
+            </span>
             <select
+              aria-label="Retention in days"
               value={retentionDays}
               onChange={(e) => setRetentionDays(Number(e.target.value))}
-              disabled={fieldDisabled}
+              disabled={!canEdit || saving}
               className={inputClass}
             >
               {RETENTION_OPTIONS.map((days) => (
@@ -248,9 +230,6 @@ function GeneralSettings({
                 </option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-zinc-500">
-              Older analytics data is deleted automatically.
-            </span>
           </label>
         </div>
 
@@ -258,9 +237,9 @@ function GeneralSettings({
           <input
             type="checkbox"
             checked={enabled}
+            disabled={!canEdit || saving}
             onChange={(e) => setEnabled(e.target.checked)}
-            disabled={fieldDisabled}
-            className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+            className="h-4 w-4 rounded border-zinc-300 accent-indigo-600 dark:border-zinc-700"
           />
           Accept events for this project
         </label>
@@ -271,12 +250,12 @@ function GeneralSettings({
         )}
 
         {formError && (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
             {formError}
           </p>
         )}
         {saved && !dirty && (
-          <p role="status" className="text-sm text-green-600 dark:text-green-400">
+          <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-300">
             Settings saved.
           </p>
         )}
@@ -290,11 +269,11 @@ function GeneralSettings({
           <button
             type="submit"
             disabled={!canEdit || saving || !dirty || !name.trim()}
-            className={primaryButton}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/25 hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
           >
             {saving ? "Saving..." : "Save changes"}
           </button>
-          <button type="button" onClick={reset} disabled={!dirty || saving} className={secondaryButton}>
+          <button type="button" onClick={reset} disabled={!dirty || saving} className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800">
             Reset
           </button>
         </div>
@@ -352,7 +331,7 @@ function DangerZone({
         />
       </label>
       {deleteError && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
           {deleteError}
         </p>
       )}
@@ -360,7 +339,7 @@ function DangerZone({
         type="button"
         onClick={remove}
         disabled={!canEdit || deleting || !matches}
-        className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 disabled:opacity-50"
       >
         {deleting ? "Deleting..." : "Delete project"}
       </button>

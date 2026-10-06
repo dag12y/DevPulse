@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useProject } from "@/lib/project-context";
+import Card from "@/components/ui/Card";
+import PageHeader from "@/components/ui/PageHeader";
 
 const INGEST_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const TRACKER_URL =
@@ -14,23 +16,37 @@ export default function InstallPage() {
 
   const trackingId = selectedTrackingId ?? projects[0]?.tracking_id ?? "dp_YOUR_TRACKING_ID";
 
-  const versionedTrackerUrl = useMemo(
-    () =>
-      process.env.NEXT_PUBLIC_TRACKER_VERSION
-        ? TRACKER_URL.replace(/\/analytics\.js$/, `/analytics-${process.env.NEXT_PUBLIC_TRACKER_VERSION}.js`)
-        : TRACKER_URL,
-    [],
-  );
+  const versionedTrackerUrl = useMemo(() => {
+    const version = process.env.NEXT_PUBLIC_TRACKER_VERSION;
+    if (version) {
+      return TRACKER_URL.replace("/analytics.js", `/analytics-${version}.js`);
+    }
+    return TRACKER_URL;
+  }, []);
 
   const snippet = useMemo(
     () =>
-      `<script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  data-endpoint="${INGEST_URL}/v1/analytics/events"\n  defer>\n</script>`,
+      [
+        "<script",
+        `  src="${TRACKER_URL}"`,
+        `  data-project="${trackingId}"`,
+        `  data-endpoint="${INGEST_URL}/v1/analytics/events"`,
+        "  defer>",
+        "</script>",
+      ].join("\n"),
     [trackingId],
   );
 
   const nextSnippet = useMemo(
     () =>
-      `<Script\n  src="${TRACKER_URL}"\n  data-project="${trackingId}"\n  data-endpoint="${INGEST_URL}/v1/analytics/events"\n  strategy="afterInteractive"\n/>`,
+      [
+        "<Script",
+        `  src="${TRACKER_URL}"`,
+        `  data-project="${trackingId}"`,
+        `  data-endpoint="${INGEST_URL}/v1/analytics/events"`,
+        '  strategy="afterInteractive"',
+        "/>",
+      ].join("\n"),
     [trackingId],
   );
 
@@ -46,13 +62,10 @@ export default function InstallPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Install tracker</h2>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Add one script tag. Events go to <span className="font-mono">{INGEST_URL}/v1/analytics/events</span>.
-          The tracking ID is public — reads stay behind your API key.
-        </p>
-      </div>
+      <PageHeader
+        title="Install tracker"
+        description={`Add one script tag. Events go to ${INGEST_URL}/v1/analytics/events. The tracking ID is public — reads stay behind your API key.`}
+      />
 
       {projects.length > 1 && (
         <label className="block max-w-md">
@@ -63,7 +76,7 @@ export default function InstallPage() {
             aria-label="Select project for install snippet"
             value={trackingId}
             onChange={(e) => selectProject(e.target.value)}
-            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm shadow-xs outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-900"
           >
             {projects.map((project) => (
               <option key={project.tracking_id} value={project.tracking_id}>
@@ -74,18 +87,18 @@ export default function InstallPage() {
         </label>
       )}
 
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+      <Card>
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Script tag</h3>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Script tag</h3>
           <button
             onClick={copy}
-            className="rounded-md border px-3 py-1.5 text-sm"
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
             aria-live="polite"
           >
             {copied ? "Copied!" : "Copy"}
           </button>
         </div>
-        <pre className="mt-3 overflow-x-auto rounded-md bg-zinc-950 p-4 font-mono text-xs text-zinc-100">
+        <pre className="mt-3 overflow-x-auto rounded-xl bg-zinc-950 p-4 font-mono text-xs text-zinc-100">
           {snippet}
         </pre>
         {selectedProject && (
@@ -94,52 +107,52 @@ export default function InstallPage() {
             {selectedProject.timezone} · Retention: {selectedProject.retention_days} days
           </p>
         )}
-      </div>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-sm">
-          <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Plain HTML</h3>
+        <Card className="text-sm">
+          <h3 className="font-semibold text-zinc-900 dark:text-white">Plain HTML</h3>
           <p className="mt-1 text-zinc-600 dark:text-zinc-400">
             Paste the tag before <code>&lt;/body&gt;</code>. Page views and SPA navigation are
             tracked automatically.
           </p>
-        </div>
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-sm">
-          <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Next.js / React SPA</h3>
+        </Card>
+        <Card className="text-sm">
+          <h3 className="font-semibold text-zinc-900 dark:text-white">Next.js / React SPA</h3>
           <p className="mt-1 text-zinc-600 dark:text-zinc-400">
             Add the tag in <code>app/layout.tsx</code> with <code>next/script</code>, or include it
             once in your root component. Route changes via <code>pushState</code>/
             <code>replaceState</code>/<code>popstate</code> each send one page view.
           </p>
-          <pre className="mt-3 overflow-x-auto rounded-md bg-zinc-950 p-3 font-mono text-xs text-zinc-100">
+          <pre className="mt-3 overflow-x-auto rounded-xl bg-zinc-950 p-3 font-mono text-xs text-zinc-100">
             {nextSnippet}
           </pre>
-        </div>
+        </Card>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-sm">
-        <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Production bundle</h3>
+      <Card className="text-sm">
+        <h3 className="font-semibold text-zinc-900 dark:text-white">Production bundle</h3>
         <p className="mt-1 text-zinc-600 dark:text-zinc-400">
           Served by the API with a 10&nbsp;KB gzip budget. Prefer the immutable versioned file:{" "}
           <code className="font-mono text-xs">{versionedTrackerUrl}</code> (
           <code>Cache-Control: immutable</code>). Events report{" "}
           <code>sdk_version</code> and retry failed sends twice with backoff, then fail silently.
         </p>
-      </div>
+      </Card>
 
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 text-sm">
-        <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Verify</h3>
+      <Card className="text-sm">
+        <h3 className="font-semibold text-zinc-900 dark:text-white">Verify</h3>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-zinc-600 dark:text-zinc-400">
           <li>Deploy the tag to a domain in this project&apos;s allowed domains.</li>
           <li>Visit the site, then open Real-time — you should appear within seconds.</li>
           <li>If the API is down, the site keeps working; events fail silently with bounded retries.</li>
         </ol>
         <p className="mt-3">
-          <Link className="underline" href="/realtime">Open Real-time</Link>
+          <Link className="font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400" href="/realtime">Open Real-time</Link>
           {" · "}
-          <Link className="underline" href="/">Open Overview</Link>
+          <Link className="font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400" href="/">Open Overview</Link>
         </p>
-      </div>
+      </Card>
     </div>
   );
 }

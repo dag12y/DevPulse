@@ -4,10 +4,16 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useProject } from "@/lib/project-context";
 import { createProject } from "@/lib/api";
+import Badge from "@/components/ui/Badge";
+import Card from "@/components/ui/Card";
+import PageHeader from "@/components/ui/PageHeader";
 
 const RETENTION_OPTIONS = [30, 90, 180, 365];
 
-function NewProjectForm({ onCreated }: { onCreated: (trackingId: string) => void }) {
+const inputClass =
+  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500";
+
+function NewProjectForm({ onCreated, onCancel }: { onCreated: (trackingId: string) => void; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [domains, setDomains] = useState("");
   const [timezone, setTimezone] = useState("");
@@ -38,15 +44,9 @@ function NewProjectForm({ onCreated }: { onCreated: (trackingId: string) => void
     }
   };
 
-  const inputClass =
-    "w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100";
-
   return (
-    <form
-      onSubmit={submit}
-      className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-4 max-w-xl"
-    >
-      <h3 className="font-medium text-zinc-900 dark:text-zinc-100">New project</h3>
+    <Card as="form" onSubmit={submit} className="max-w-xl space-y-4">
+      <h3 className="font-semibold text-zinc-900 dark:text-white">New project</h3>
 
       <label className="block">
         <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -95,6 +95,7 @@ function NewProjectForm({ onCreated }: { onCreated: (trackingId: string) => void
             Retention
           </span>
           <select
+            aria-label="Retention in days"
             value={retentionDays}
             onChange={(e) => setRetentionDays(Number(e.target.value))}
             className={inputClass}
@@ -109,75 +110,68 @@ function NewProjectForm({ onCreated }: { onCreated: (trackingId: string) => void
       </div>
 
       {formError && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
           {formError}
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={saving || !name.trim()}
-        className="rounded-md bg-zinc-900 dark:bg-zinc-100 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 disabled:opacity-50"
-      >
-        {saving ? "Creating..." : "Create project"}
-      </button>
-    </form>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={saving || !name.trim()}
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/25 hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+        >
+          {saving ? "Creating..." : "Create project"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          Cancel
+        </button>
+      </div>
+    </Card>
   );
 }
 
 export default function ProjectsPage() {
-  const { projects, selectedTrackingId, selectProject, loading, error, refresh } = useProject();
+  const { projects, selectedTrackingId, selectProject, refresh } = useProject();
   const [showForm, setShowForm] = useState(false);
-
-  if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Projects</h2>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-zinc-500">Loading projects...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-6 space-y-6">
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Projects</h2>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-          <p className="font-medium">Failed to load projects</p>
-          <p className="text-sm mt-1">{error}</p>
-          <button onClick={refresh} className="mt-3 rounded-md border px-3 py-1.5 text-sm underline">
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const formVisible = showForm || projects.length === 0;
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Projects</h2>
-        <div className="flex gap-2">
-          {projects.length > 0 && (
+      <PageHeader
+        title="Projects"
+        description="Create tracking projects, switch context, and grab install snippets."
+        actions={
+          !showForm ? (
             <button
-              onClick={() => setShowForm((v) => !v)}
-              className="rounded-md border px-3 py-1.5 text-sm"
+              onClick={() => setShowForm(true)}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/25 hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
             >
-              {showForm ? "Hide form" : "New project"}
+              New project
             </button>
-          )}
-          <Link href="/install" className="rounded-md border px-3 py-1.5 text-sm underline">
+          ) : undefined
+        }
+      />
+
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 text-sm text-indigo-900 dark:border-indigo-800/60 dark:bg-indigo-950/40 dark:text-indigo-200">
+        <p className="font-semibold">About tracking IDs</p>
+        <p className="mt-1">
+          The tracking ID (<span className="font-mono">dp_…</span>) is public and goes in your site&apos;s
+          script tag. Keep the secret API key on the server — it reads this dashboard data.
+        </p>
+        <div className="mt-2">
+          <Link className="font-medium underline underline-offset-2" href="/install">
             Install tracker
           </Link>
         </div>
       </div>
 
-      {formVisible && (
+      {showForm && (
         <NewProjectForm
+          onCancel={() => setShowForm(false)}
           onCreated={(trackingId) => {
             setShowForm(false);
             refresh();
@@ -190,25 +184,15 @@ export default function ProjectsPage() {
         {projects.map((project) => {
           const isSelected = project.tracking_id === selectedTrackingId;
           return (
-            <div
+            <Card
               key={project.id}
-              className={`rounded-lg border p-4 ${
-                isSelected
-                  ? "border-blue-500 dark:border-blue-400"
-                  : "border-zinc-200 dark:border-zinc-800"
-              }`}
+              className={isSelected ? "border-indigo-500 ring-1 ring-indigo-500 dark:border-indigo-400" : ""}
             >
               <div className="flex items-start justify-between gap-2">
-                <h3 className="font-medium text-zinc-900 dark:text-zinc-100">{project.name}</h3>
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                    project.enabled
-                      ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                      : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                  }`}
-                >
+                <h3 className="font-semibold text-zinc-900 dark:text-white">{project.name}</h3>
+                <Badge tone={project.enabled ? "success" : "neutral"}>
                   {project.enabled ? "Active" : "Disabled"}
-                </span>
+                </Badge>
               </div>
               <p className="text-sm text-zinc-500 mt-1 font-mono">{project.tracking_id}</p>
               <div className="mt-3 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
@@ -216,37 +200,37 @@ export default function ProjectsPage() {
                 <p>Retention: {project.retention_days} days</p>
                 <p>Domains: {project.allowed_domains.join(", ") || "All domains"}</p>
               </div>
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   onClick={() => selectProject(project.tracking_id)}
                   disabled={isSelected}
-                  className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   {isSelected ? "Selected" : "Select"}
                 </button>
                 <Link
                   href={`/install?project=${encodeURIComponent(project.tracking_id)}`}
-                  className="rounded-md border px-3 py-1.5 text-sm underline"
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:border-zinc-700 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
                 >
                   Install
                 </Link>
                 <Link
                   href={`/settings?project=${encodeURIComponent(project.tracking_id)}`}
                   onClick={() => selectProject(project.tracking_id)}
-                  className="rounded-md border px-3 py-1.5 text-sm underline"
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   Settings
                 </Link>
               </div>
-            </div>
+            </Card>
           );
         })}
       </div>
 
       {projects.length > 0 && (
         <details className="text-sm text-zinc-600 dark:text-zinc-400">
-          <summary className="cursor-pointer underline">Or create via the API</summary>
-          <pre className="mt-3 overflow-x-auto rounded-md bg-zinc-950 p-3 font-mono text-xs text-zinc-100">
+          <summary className="cursor-pointer font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400">Or create via the API</summary>
+          <pre className="mt-3 overflow-x-auto rounded-xl bg-zinc-950 p-3 font-mono text-xs text-zinc-100">
 {`curl -X POST $API/v1/analytics/projects \\
   -H "Authorization: Bearer $KEY" \\
   -H 'Content-Type: application/json' \\
