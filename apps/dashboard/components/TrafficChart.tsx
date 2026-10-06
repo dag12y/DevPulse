@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import type { TrafficData } from "@/lib/api";
+import Card from "@/components/ui/Card";
 
 type Metric = "views" | "visitors";
 
 const METRICS: { key: Metric; label: string; color: string }[] = [
-  { key: "views", label: "Views", color: "bg-blue-500" },
+  { key: "views", label: "Views", color: "bg-indigo-500" },
   { key: "visitors", label: "Visitors", color: "bg-emerald-500" },
 ];
 
@@ -58,12 +59,12 @@ export default function TrafficChart({
 
   if (data.length === 0) {
     return (
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+      <Card className="p-5">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           Traffic <span className="font-normal text-zinc-500">({days} days)</span>
         </h3>
         <p className="mt-4 text-sm text-zinc-500">No traffic in this range yet.</p>
-      </div>
+      </Card>
     );
   }
 
@@ -74,15 +75,15 @@ export default function TrafficChart({
   const plotHeight = tall ? "h-56" : "h-40";
 
   return (
-    <figure className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+    <Card as="figure" className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           Traffic <span className="font-normal text-zinc-500">({days} days)</span>
         </h3>
         <div
           role="group"
           aria-label="Chart metric"
-          className="flex gap-1 rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700"
+          className="flex gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 dark:border-zinc-700 dark:bg-zinc-800/60"
         >
           {METRICS.map((option) => {
             const selected = metric === option.key;
@@ -92,9 +93,9 @@ export default function TrafficChart({
                 type="button"
                 onClick={() => setMetric(option.key)}
                 aria-pressed={selected}
-                className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600 ${
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 ${
                   selected
-                    ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-white"
                     : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                 }`}
               >
@@ -153,7 +154,7 @@ export default function TrafficChart({
                         aria-label={tooltip}
                         title={tooltip}
                         style={{ height: value > 0 ? `${Math.max((value / ceiling) * 100, 2)}%` : "0%" }}
-                        className={`w-full rounded-t focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600 ${active.color}`}
+                        className={`w-full rounded-t-md focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 ${active.color}`}
                       />
                       <span
                         role="tooltip"
@@ -178,7 +179,7 @@ export default function TrafficChart({
         </div>
       </div>
 
-      <figcaption className="mt-2 flex items-center gap-4 text-xs text-zinc-500">
+      <figcaption className="mt-3 flex items-center gap-4 border-t border-zinc-100 pt-3 text-xs text-zinc-500 dark:border-zinc-800">
         {METRICS.map((option) => (
           <span key={option.key} className="inline-flex items-center gap-1.5">
             <span aria-hidden="true" className={`h-2 w-2 rounded-full ${option.color}`} />
@@ -186,6 +187,6 @@ export default function TrafficChart({
           </span>
         ))}
       </figcaption>
-    </figure>
+    </Card>
   );
 }

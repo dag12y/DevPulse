@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 
+const selectClass =
+  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
+
 export default function WorkspaceSelector() {
   const { user, workspaces, selectedWorkspaceID, selectWorkspace, loading, usingEnvKey } = useAuth();
 
   if (loading) {
     return (
-      <div className="rounded-md border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm text-zinc-500">
+      <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-500 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
         Loading…
       </div>
     );
@@ -16,12 +19,12 @@ export default function WorkspaceSelector() {
 
   if (!user) {
     return (
-      <div className="rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm text-zinc-500">
+      <div className="rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-sm text-zinc-500 dark:border-zinc-700">
         {usingEnvKey ? (
           <>API key mode</>
         ) : (
           <>
-            Not signed in — <Link className="underline" href="/login">Sign in</Link>
+            Not signed in — <Link className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400" href="/login">Sign in</Link>
           </>
         )}
       </div>
@@ -30,7 +33,7 @@ export default function WorkspaceSelector() {
 
   if (workspaces.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm text-zinc-500">
+      <div className="rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-sm text-zinc-500 dark:border-zinc-700">
         No workspaces
       </div>
     );
@@ -45,7 +48,7 @@ export default function WorkspaceSelector() {
         aria-label="Select workspace"
         value={selectedWorkspaceID ?? ""}
         onChange={(e) => selectWorkspace(e.target.value)}
-        className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100"
+        className={selectClass}
       >
         {workspaces.map((membership) => (
           <option key={membership.workspace_id} value={membership.workspace_id}>

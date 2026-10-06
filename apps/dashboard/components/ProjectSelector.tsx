@@ -2,12 +2,15 @@
 
 import { useProject } from "@/lib/project-context";
 
+const selectClass =
+  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
+
 export default function ProjectSelector() {
   const { projects, selectedTrackingId, selectProject, loading } = useProject();
 
   if (loading) {
     return (
-      <div className="rounded-md border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm text-zinc-500">
+      <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-500 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
         Loading projects…
       </div>
     );
@@ -15,7 +18,7 @@ export default function ProjectSelector() {
 
   if (projects.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm text-zinc-500">
+      <div className="rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-sm text-zinc-500 dark:border-zinc-700">
         No projects yet
       </div>
     );
@@ -30,7 +33,7 @@ export default function ProjectSelector() {
         aria-label="Select analytics project"
         value={selectedTrackingId ?? ""}
         onChange={(e) => selectProject(e.target.value)}
-        className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100"
+        className={selectClass}
       >
         {projects.map((project) => (
           <option key={project.tracking_id} value={project.tracking_id}>

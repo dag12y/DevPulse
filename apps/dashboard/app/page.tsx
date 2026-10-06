@@ -8,6 +8,7 @@ import ReportHeader from "@/components/ReportHeader";
 import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
 import TrafficChart from "@/components/TrafficChart";
+import Card from "@/components/ui/Card";
 
 export default function OverviewPage() {
   const { selectedTrackingId, days, range } = useProject();
@@ -97,8 +98,8 @@ export default function OverviewPage() {
         />
       </div>
 
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3">New vs Returning Visitors</h3>
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm shadow-zinc-950/5 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-none">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3">New vs Returning Visitors</h3>
         {(() => {
           const fresh = summary?.new_visitors ?? 0;
           const returning = summary?.returning_visitors ?? 0;
@@ -111,8 +112,8 @@ export default function OverviewPage() {
                 role="img"
                 aria-label={`${fresh.toLocaleString()} new and ${returning.toLocaleString()} returning visitors`}
               >
-                <div className="bg-green-500" style={{ width: `${freshShare}%` }} />
-                <div className="bg-blue-500" style={{ width: `${100 - freshShare}%` }} />
+                <div className="bg-emerald-500" style={{ width: `${freshShare}%` }} />
+                <div className="bg-indigo-500" style={{ width: `${100 - freshShare}%` }} />
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-4 text-sm">
                 <div>
@@ -172,20 +173,21 @@ function MetricCard({
   const positive = (change ?? 0) >= 0;
   const good = invert ? !positive : positive;
   return (
-    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+    <Card className="p-4">
       <p className="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
-      <p className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
+      <p className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white mt-1 tabular-nums">
         {typeof value === "number" ? value.toLocaleString() : value}
       </p>
       {change != null ? (
-        <p className={`text-xs mt-1 ${good ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-          {change >= 0 ? "+" : ""}{change.toFixed(1)}% vs prior period
+        <p className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${good ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300"}`}>
+          <span aria-hidden="true">{change >= 0 ? "▲" : "▼"}</span>
+          {change >= 0 ? "+" : ""}{change.toFixed(1)}% vs prior
         </p>
       ) : (
-        <p className="text-xs mt-1 text-zinc-400">— no prior baseline</p>
+        <p className="text-xs mt-1.5 text-zinc-400">— no prior baseline</p>
       )}
-      {sub && <p className="text-xs mt-0.5 text-zinc-500">{sub}</p>}
-    </div>
+      {sub && <p className="text-xs mt-1 text-zinc-500">{sub}</p>}
+    </Card>
   );
 }
 
