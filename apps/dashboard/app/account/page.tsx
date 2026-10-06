@@ -14,6 +14,18 @@ import {
   updateMemberRole,
   type WorkspaceMember,
 } from "@/lib/api";
+import Badge from "@/components/ui/Badge";
+import Card from "@/components/ui/Card";
+import PageHeader from "@/components/ui/PageHeader";
+
+const inputClass =
+  "rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500";
+
+const btnSecondary =
+  "rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800";
+
+const btnPrimary =
+  "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/25 hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400";
 
 export default function AccountPage() {
   const { user, workspaces, selectedWorkspaceID, selectWorkspace, selectedMembership, logout, refresh, loading } =
@@ -23,7 +35,9 @@ export default function AccountPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
   const [newWorkspace, setNewWorkspace] = useState("");
+  const [creating, setCreating] = useState(false);
   const [editingWorkspaceID, setEditingWorkspaceID] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [confirmDeleteID, setConfirmDeleteID] = useState<string | null>(null);
@@ -49,8 +63,12 @@ export default function AccountPage() {
 
   if (loading) {
     return (
-      <div className="p-6">
-        <p className="text-zinc-500">Loading account…</p>
+      <div className="p-6" role="status" aria-label="Loading account">
+        <div className="max-w-3xl space-y-3">
+          <div className="h-7 w-40 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800" />
+          <div className="h-4 w-64 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+          <div className="h-40 animate-pulse rounded-2xl bg-zinc-200 dark:bg-zinc-800" />
+        </div>
       </div>
     );
   }
@@ -58,9 +76,9 @@ export default function AccountPage() {
   if (!user) {
     return (
       <div className="p-6 space-y-3">
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Account</h2>
+        <h2 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Account</h2>
         <p className="text-sm text-zinc-500">
-          <Link className="underline" href="/login">Sign in</Link> to manage workspaces and members.
+          <Link className="font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400" href="/login">Sign in</Link> to manage workspaces and members.
         </p>
       </div>
     );
@@ -75,14 +93,17 @@ export default function AccountPage() {
 
   const invite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedWorkspaceID) return;
+    if (!selectedWorkspaceID || inviting) return;
+    setInviting(true);
     setActionError(null);
     try {
-      await addMember(selectedWorkspaceID, inviteEmail, inviteRole);
+      await addMember(selectedWorkspaceID, inviteEmail.trim(), inviteRole);
       setInviteEmail("");
       reloadMembers();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Invite failed");
+    } finally {
+      setInviting(false);
     }
   };
 
@@ -110,201 +131,202 @@ export default function AccountPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newWorkspace.trim() || creating) return;
+    setCreating(true);
     setActionError(null);
     try {
-      const membership = await createWorkspace(newWorkspace);
+      await createWorkspace(newWorkspace.trim());
       setNewWorkspace("");
-      refresh();
-      selectWorkspace(membership.workspace_id);
+      await refresh();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Creation failed");
+      setActionError(err instanceof Error ? err.message : "Create failed");
+    } finally {
+      setCreating(false);
     }
   };
 
-  const canEdit = (role: string) => role === "owner" || role === "admin";
-  const canDelete = (role: string) => role === "owner";
-
-  const startRename = (workspaceID: string, currentName: string) => {
-    setConfirmDeleteID(null);
+  const startEditing = (workspaceID: string, name: string) => {
     setEditingWorkspaceID(workspaceID);
-    setEditingName(currentName);
+    setEditingName(name);
   };
 
-  const saveRename = async (e: React.FormEvent, workspaceID: string) => {
-    e.preventDefault();
+  const saveRename = async (workspaceID: string) => {
+    if (!editingName.trim()) return;
     setActionError(null);
     try {
-      await renameWorkspace(workspaceID, editingName);
+      await renameWorkspace(workspaceID, editingName.trim());
       setEditingWorkspaceID(null);
-      setEditingName("");
-      refresh();
+      await refresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Rename failed");
     }
   };
 
-  const destroy = async (workspaceID: string) => {
+  const confirmDelete = async (workspaceID: string) => {
     setActionError(null);
     try {
       await deleteWorkspace(workspaceID);
       setConfirmDeleteID(null);
-      refresh();
-      if (workspaceID === selectedWorkspaceID) {
-        const next = workspaces.find((m) => m.workspace_id !== workspaceID);
-        selectWorkspace(next ? next.workspace_id : "");
-      }
+      await refresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Delete failed");
     }
   };
 
   return (
-    <div className="max-w-3xl space-y-8 p-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Account</h2>
-        <p className="mt-1 text-sm text-zinc-500">{user.email}</p>
-      </div>
+    <div className="p-6 space-y-6">
+      <PageHeader
+        title="Account"
+        description={user.email}
+        actions={
+          <button onClick={() => logout()} className={btnSecondary}>
+            Sign out
+          </button>
+        }
+      />
 
-      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-        <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Workspaces</h3>
-        <ul className="mt-3 space-y-2 text-sm">
-          {workspaces.map((membership) => (
-            <li key={membership.workspace_id} className="flex items-center justify-between gap-3">
-              {editingWorkspaceID === membership.workspace_id ? (
-                <form onSubmit={(e) => saveRename(e, membership.workspace_id)} className="flex flex-1 gap-2">
-                  <input
-                    value={editingName}
-                    onChange={(e) => setEditingName(e.target.value)}
-                    aria-label="Workspace name"
-                    className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm"
-                  />
-                  <button type="submit" className="rounded-md border px-2 py-1 text-xs">
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingWorkspaceID(null)}
-                    className="rounded-md border px-2 py-1 text-xs"
-                  >
-                    Cancel
-                  </button>
-                </form>
-              ) : (
-                <span>
-                  {membership.workspace_name}{" "}
-                  <span className="text-zinc-500">· {membership.role}</span>
-                </span>
-              )}
-              {editingWorkspaceID !== membership.workspace_id && (
-                <span className="flex items-center gap-2">
-                  {membership.workspace_id === selectedWorkspaceID ? (
-                    <span className="text-xs text-zinc-500">Selected</span>
-                  ) : (
-                    <button
-                      onClick={() => selectWorkspace(membership.workspace_id)}
-                      className="rounded-md border px-2 py-1 text-xs"
-                    >
-                      Select
-                    </button>
-                  )}
-                  {canEdit(membership.role) && (
-                    <button
-                      onClick={() => startRename(membership.workspace_id, membership.workspace_name)}
-                      className="rounded-md border px-2 py-1 text-xs"
-                    >
-                      Rename
-                    </button>
-                  )}
-                  {canDelete(membership.role) &&
-                    (confirmDeleteID === membership.workspace_id ? (
-                      <>
-                        <button
-                          onClick={() => destroy(membership.workspace_id)}
-                          className="rounded-md border border-red-300 dark:border-red-700 px-2 py-1 text-xs text-red-600 dark:text-red-400"
-                        >
-                          Confirm delete
+      {actionError && (
+        <p role="alert" className="max-w-3xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
+          {actionError}
+        </p>
+      )}
+
+      <Card as="section" className="max-w-3xl space-y-3">
+        <h3 className="font-semibold text-zinc-900 dark:text-white">Workspaces</h3>
+        {workspaces.length === 0 && <p className="text-sm text-zinc-500">No workspaces yet. Create one below.</p>}
+        <ul className="space-y-2">
+          {workspaces.map((membership) => {
+            const isSelected = membership.workspace_id === selectedWorkspaceID;
+            const isEditing = editingWorkspaceID === membership.workspace_id;
+            const isConfirmingDelete = confirmDeleteID === membership.workspace_id;
+            return (
+              <li
+                key={membership.workspace_id}
+                className={`rounded-xl border p-3 transition ${isSelected ? "border-indigo-300 bg-indigo-50/50 dark:border-indigo-700 dark:bg-indigo-500/5" : "border-zinc-200 dark:border-zinc-800"}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    {isEditing ? (
+                      <span className="flex gap-2">
+                        <input
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          maxLength={255}
+                          aria-label="Workspace name"
+                          autoFocus
+                          className={inputClass}
+                        />
+                        <button onClick={() => saveRename(membership.workspace_id)} disabled={!editingName.trim()} className={btnSecondary}>
+                          Save
                         </button>
-                        <button
-                          onClick={() => setConfirmDeleteID(null)}
-                          className="rounded-md border px-2 py-1 text-xs"
-                        >
+                        <button onClick={() => setEditingWorkspaceID(null)} className={btnSecondary}>
                           Cancel
                         </button>
-                      </>
+                      </span>
                     ) : (
-                      <button
-                        onClick={() => setConfirmDeleteID(membership.workspace_id)}
-                        className="rounded-md border px-2 py-1 text-xs text-red-600 dark:text-red-400"
-                      >
-                        Delete
+                      <span className="flex items-center gap-2">
+                        <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
+                          {membership.workspace_name}
+                        </span>
+                        <Badge tone={membership.role === "owner" ? "indigo" : "neutral"}>{membership.role}</Badge>
+                        {isSelected && <Badge tone="success">current</Badge>}
+                      </span>
+                    )}
+                  </div>
+                  {!isEditing && !isConfirmingDelete && (
+                    <span className="flex gap-1.5 text-xs">
+                      {!isSelected && (
+                        <button onClick={() => selectWorkspace(membership.workspace_id)} className={btnSecondary}>
+                          Switch
+                        </button>
+                      )}
+                      {canManage && (
+                        <button onClick={() => startEditing(membership.workspace_id, membership.workspace_name)} className={btnSecondary}>
+                          Rename
+                        </button>
+                      )}
+                      {membership.role === "owner" && (
+                        <button onClick={() => setConfirmDeleteID(membership.workspace_id)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-800/60 dark:text-red-300 dark:hover:bg-red-950/40">
+                          Delete
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </div>
+                {isConfirmingDelete && (
+                  <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm dark:border-red-800/60 dark:bg-red-950/30">
+                    <p className="text-red-800 dark:text-red-200">
+                      Delete <strong>{membership.workspace_name}</strong>? Projects, members, and analytics go with it. This cannot be undone.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={() => confirmDelete(membership.workspace_id)} className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500">
+                        Yes, delete
                       </button>
-                    ))}
-                </span>
-              )}
-            </li>
-          ))}
+                      <button onClick={() => setConfirmDeleteID(null)} className={btnSecondary}>
+                        Keep
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
-        {confirmDeleteID && (
-          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-            Deleting a workspace permanently removes its projects, analytics data, API keys, and memberships.
-          </p>
-        )}
-        <form onSubmit={create} className="mt-4 flex gap-2">
+        <form onSubmit={create} className="flex flex-wrap gap-2">
           <input
             value={newWorkspace}
             onChange={(e) => setNewWorkspace(e.target.value)}
             placeholder="New workspace name"
+            maxLength={255}
             aria-label="New workspace name"
-            className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm"
+            className={`${inputClass} flex-1`}
           />
-          <button type="submit" className="rounded-md border px-3 py-1.5 text-sm">
-            Create
+          <button type="submit" disabled={!newWorkspace.trim() || creating} className={btnPrimary}>
+            {creating ? "Creating..." : "Create workspace"}
           </button>
         </form>
-        {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-        <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Members</h3>
-        {!selectedWorkspaceID ? (
-          <p className="mt-2 text-sm text-zinc-500">Select a workspace first.</p>
-        ) : membersError ? (
-          <p className="mt-2 text-sm text-red-600">{membersError}</p>
+      <Card as="section" className="max-w-3xl space-y-3">
+        <h3 className="font-semibold text-zinc-900 dark:text-white">Members</h3>
+        {membersError ? (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {membersError} <button className="underline" onClick={reloadMembers}>Retry</button>
+          </p>
+        ) : members.length === 0 ? (
+          <p className="text-sm text-zinc-500">No members listed yet.</p>
         ) : (
-          <table className="mt-3 w-full text-sm">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-zinc-500 border-b border-zinc-200 dark:border-zinc-800">
-                <th className="pb-2 font-medium">Email</th>
-                <th className="pb-2 font-medium">Role</th>
-                <th className="pb-2 font-medium text-right">Actions</th>
+              <tr className="border-b border-zinc-200 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                <th className="pb-2">Email</th>
+                <th className="pb-2">Role</th>
+                <th className="pb-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {members.map((member) => (
-                <tr key={member.user_id} className="border-b border-zinc-100 dark:border-zinc-800/50">
-                  <td className="py-2">{member.email}</td>
-                  <td className="py-2">
+                <tr key={member.user_id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/50">
+                  <td className="py-2.5 text-zinc-800 dark:text-zinc-200">{member.email}</td>
+                  <td className="py-2.5">
                     {canManage ? (
                       <select
                         aria-label={`Role for ${member.email}`}
                         value={member.role}
                         onChange={(e) => changeRole(member.user_id, e.target.value)}
-                        className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-sm"
+                        className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
                       >
                         <option value="owner">owner</option>
                         <option value="admin">admin</option>
                         <option value="viewer">viewer</option>
                       </select>
                     ) : (
-                      member.role
+                      <Badge tone="neutral">{member.role}</Badge>
                     )}
                   </td>
-                  <td className="py-2 text-right">
+                  <td className="py-2.5 text-right">
                     {(canManage || member.user_id === user.id) && (
-                      <button
-                        onClick={() => remove(member.user_id)}
-                        className="rounded-md border px-2 py-1 text-xs"
-                      >
+                      <button onClick={() => remove(member.user_id)} className="rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800">
                         {member.user_id === user.id ? "Leave" : "Remove"}
                       </button>
                     )}
@@ -315,7 +337,7 @@ export default function AccountPage() {
           </table>
         )}
         {canManage && selectedWorkspaceID && (
-          <form onSubmit={invite} className="mt-4 flex flex-wrap gap-2">
+          <form onSubmit={invite} className="mt-2 flex flex-wrap gap-2">
             <input
               type="email"
               required
@@ -323,35 +345,29 @@ export default function AccountPage() {
               onChange={(e) => setInviteEmail(e.target.value)}
               placeholder="teammate@example.com"
               aria-label="Invite email"
-              className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm"
+              disabled={inviting}
+              className={`${inputClass} flex-1`}
             />
             <select
               aria-label="Invite role"
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value)}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1.5 text-sm"
+              disabled={inviting}
+              className={inputClass}
             >
               <option value="viewer">viewer</option>
               <option value="admin">admin</option>
               <option value="owner">owner</option>
             </select>
-            <button type="submit" className="rounded-md border px-3 py-1.5 text-sm">
-              Invite
+            <button type="submit" disabled={inviting} className={btnPrimary}>
+              {inviting ? "Inviting..." : "Invite"}
             </button>
           </form>
         )}
-        {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
-        <p className="mt-2 text-xs text-zinc-500">
+        <p className="text-xs text-zinc-500">
           Invites only work for registered emails. The last owner cannot be demoted or removed.
         </p>
-      </section>
-
-      <button
-        onClick={() => logout()}
-        className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
-      >
-        Sign out
-      </button>
+      </Card>
     </div>
   );
 }
