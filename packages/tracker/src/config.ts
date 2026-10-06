@@ -41,8 +41,11 @@ export function configFromScript(document: Document): TrackerConfig | null {
   const endpoint = script.dataset.endpoint?.trim() || endpointFromScriptSrc(script.src);
   if (!endpoint) return null;
 
+  const respectDNT = script.dataset.respectDnt === "true" || script.dataset.dnt === "true";
+
   return {
     projectId,
     endpoint,
+    ...(respectDNT ? { respectDNT: true } : {}),
   };
 }

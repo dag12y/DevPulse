@@ -3,6 +3,7 @@ export const TRACKER_VERSION = "0.2.0";
 export interface TrackerConfig {
   projectId: string;
   endpoint: string;
+  respectDNT?: boolean;
 }
 
 export interface Dimensions {

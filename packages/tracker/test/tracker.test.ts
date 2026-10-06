@@ -158,3 +158,35 @@ test("beacon success never touches fetch", () => {
   sendEvent("https://api.test/events", {} as never, { sendBeacon: () => true } as unknown as Navigator, (() => { fetchCalls += 1; return Promise.resolve(new Response()); }) as typeof fetch);
   assert.equal(fetchCalls, 0);
 });
+
+test("config parses respectDNT attribute", () => {
+  const config = configFromScript(fakeDocument(
+    scriptElement({ project: "dp_abc", respectDnt: "true" }, "https://analytics.example.com/analytics.js"),
+  ));
+  assert.equal(config?.respectDNT, true);
+
+  const defaultConf = configFromScript(fakeDocument(
+    scriptElement({ project: "dp_abc" }, "https://analytics.example.com/analytics.js"),
+  ));
+  assert.equal(defaultConf?.respectDNT, undefined);
+});
+
+test("tracker skips tracking when respectDNT is enabled and browser has DNT active", () => {
+  let beaconCount = 0;
+  const current = new URL("https://example.com/");
+  const window = {
+    get location() { return { href: current.href, pathname: current.pathname }; },
+    history: { pushState() {}, replaceState() {} },
+    navigator: {
+      doNotTrack: "1",
+      sendBeacon() { beaconCount += 1; return true; },
+    },
+    addEventListener() {},
+    setTimeout() { return 0; },
+  } as unknown as Window;
+  const document = { cookie: "", location: { protocol: "https:" }, title: "Home", referrer: "" } as unknown as Document;
+
+  const tracker = createTracker({ projectId: "dp_test", endpoint: "https://api.test/events", respectDNT: true }, document, window);
+  tracker.trackPageView();
+  assert.equal(beaconCount, 0);
+});

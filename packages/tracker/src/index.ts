@@ -3,7 +3,24 @@ import { createPageView } from "./pageview";
 import { sendEvent } from "./transport";
 import type { Tracker, TrackerConfig } from "./types";
 
+export function isDNTEnabled(window = globalThis.window): boolean {
+  try {
+    const nav = window.navigator as unknown as { doNotTrack?: string; globalPrivacyControl?: boolean } | undefined;
+    const win = window as unknown as { doNotTrack?: string } | undefined;
+    if (nav?.globalPrivacyControl === true) return true;
+    if (nav?.doNotTrack === "1" || nav?.doNotTrack === "yes") return true;
+    if (win?.doNotTrack === "1") return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function createTracker(config: TrackerConfig, document = globalThis.document, window = globalThis.window): Tracker {
+  if (config.respectDNT && isDNTEnabled(window)) {
+    return { trackPageView: () => {} };
+  }
+
   let lastURL = currentURL(window.location);
   const trackPageView = () => {
     try {
