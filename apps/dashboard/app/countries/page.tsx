@@ -3,7 +3,9 @@
 
 import { useEffect, useState } from "react";
 import { getCountries, type CountryStats } from "@/lib/api";
+import { getCountryName } from "@/lib/countries";
 import { useProject } from "@/lib/project-context";
+import CountryFlag from "@/components/CountryFlag";
 import ReportHeader from "@/components/ReportHeader";
 import { ErrorState, ReportLoading } from "@/components/ReportStates";
 import ReportTable from "@/components/ReportTable";
@@ -56,7 +58,12 @@ export default function CountriesPage() {
         emptyMessage="No country data yet. Geography requires GeoIP enrichment on the API."
         defaultSortKey="page_views"
         columns={[
-          { key: "country", label: "Country", value: (country) => country.country },
+          {
+            key: "country",
+            label: "Country",
+            value: (country) => getCountryName(country.country),
+            render: (country) => <CountryFlag code={country.country} />,
+          },
           { key: "page_views", label: "Page Views", numeric: true, value: (country) => country.page_views },
           { key: "visitors", label: "Visitors", numeric: true, value: (country) => country.visitors },
           {
