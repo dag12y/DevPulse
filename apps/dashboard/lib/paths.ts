@@ -8,7 +8,7 @@ export const SESSION_COOKIE = "__Host-dp_session";
 export const SESSION_COOKIE_FALLBACK = "dp_session";
 
 /** Paths reachable without a session. Prefixes match with a segment break. */
-const PUBLIC_PREFIXES = ["/login", "/register", "/oauth"];
+const PUBLIC_PREFIXES = ["/login", "/register", "/forgot-password", "/reset-password", "/verify-email", "/oauth"];
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

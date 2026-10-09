@@ -101,10 +101,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(
     async (email: string, password: string, workspaceName?: string) => {
-      const response = await apiRegister(email, password, workspaceName);
-      applySession(response.user, response.workspaces ?? [response.workspace!]);
+      // Registration no longer opens a session: the emailed verification
+      // link is the front door. The caller redirects to /verify-email.
+      await apiRegister(email, password, workspaceName);
     },
-    [applySession],
+    [],
   );
 
   const logout = useCallback(async () => {

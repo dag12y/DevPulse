@@ -19,6 +19,16 @@ func TestValidateRequiresCORSAllowlistInProduction(t *testing.T) {
 	}
 
 	production.AllowedOrigins = []string{"https://app.example.com"}
+	if err := production.Validate(); err == nil {
+		t.Fatal("expected RESEND_API_KEY to be required in production")
+	}
+
+	production.ResendAPIKey = "re_test_key"
+	if err := production.Validate(); err == nil {
+		t.Fatal("expected APP_URL to be required in production")
+	}
+
+	production.AppURL = "https://app.example.com"
 	if err := production.Validate(); err != nil {
 		t.Fatalf("expected valid production config, got %v", err)
 	}

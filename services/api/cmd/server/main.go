@@ -11,6 +11,7 @@ import (
 	"github.com/dag12y/devpulse/internal/auth"
 	"github.com/dag12y/devpulse/internal/config"
 	"github.com/dag12y/devpulse/internal/database"
+	"github.com/dag12y/devpulse/internal/email"
 	internalhttp "github.com/dag12y/devpulse/internal/http"
 	"github.com/dag12y/devpulse/internal/metrics"
 	"github.com/dag12y/devpulse/internal/projects"
@@ -54,7 +55,19 @@ func main() {
 	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
 	usersRepository := users.NewRepository(db.Pool)
 
-	usersHandler := users.NewHandler(usersRepository, users.WithSecureCookies(cfg.SessionCookieSecure))
+	// Auth email: Resend in production (Validate already refused to boot
+	// without a key there), the log sender in development — verification
+	// and reset links land in `docker logs` instead of a provider.
+	var mailSender email.Sender = email.NewLog()
+	if cfg.ResendAPIKey != "" {
+		mailSender = email.NewResend(cfg.ResendAPIKey, cfg.EmailFrom)
+	}
+
+	usersHandler := users.NewHandler(usersRepository,
+		users.WithSecureCookies(cfg.SessionCookieSecure),
+		users.WithEmailSender(mailSender),
+		users.WithAppURL(cfg.AppURL),
+	)
 
 	var geo analytics.GeoResolver = analytics.NullGeoResolver{}
 	if cfg.GeoIPDBPath != "" {
@@ -134,6 +147,10 @@ func main() {
 	mux.HandleFunc("POST /v1/auth/register", usersHandler.Register)
 	mux.HandleFunc("POST /v1/auth/login", usersHandler.Login)
 	mux.HandleFunc("POST /v1/auth/logout", usersHandler.Logout)
+	mux.HandleFunc("POST /v1/auth/verify-email", usersHandler.VerifyEmail)
+	mux.HandleFunc("POST /v1/auth/resend-verification", usersHandler.ResendVerification)
+	mux.HandleFunc("POST /v1/auth/forgot-password", usersHandler.ForgotPassword)
+	mux.HandleFunc("POST /v1/auth/reset-password", usersHandler.ResetPassword)
 	mux.HandleFunc("GET /v1/auth/me", requireSession(usersHandler.Me))
 	mux.HandleFunc("POST /v1/workspaces", requireSession(usersHandler.CreateWorkspace))
 	mux.HandleFunc("GET /v1/workspaces", requireSession(usersHandler.ListWorkspaces))

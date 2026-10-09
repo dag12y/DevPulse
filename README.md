@@ -7,7 +7,7 @@ DevPulse is a lightweight, privacy-conscious web analytics platform for develope
 Working end to end on `main`:
 
 - **Ingestion**: `POST /v1/analytics/events` validates, bot-filters, enriches (device, browser, OS, country/region via MaxMind when configured), and rate-limits per project+IP. The tracker never blocks the host site.
-- **Auth**: workspace API keys (`dpk_…`) and human login sessions (`dps_…`) with owner/admin/viewer roles, workspace isolation on every private route, member management with last-owner guards.
+- **Auth**: workspace API keys (`dpk_…`) and human login sessions (`dps_…`) with owner/admin/viewer roles, workspace isolation on every private route, member management with last-owner guards. Signups must verify their email first: one-time `dpt_…` links go out through Resend (dev prints them to the API log), and password resets revoke every session on success. The dashboard keeps its session in an `HttpOnly` cookie and calls the API through a same-origin `/api` proxy with middleware route guards; direct API clients keep using `Authorization: Bearer <token>`.
 - **Reports**: summary with previous-period comparison, traffic, top pages, sources, countries, devices, and 15s real-time — all scoped to the selected project, date range (24H/7/30/90D presets or a custom `start_date`/`end_date` range), and project timezone.
 - **Dashboard**: project + workspace switchers (persisted to URL/localStorage), install screen with copyable script tag, login/register/account pages.
 - **Privacy/retention**: raw IPs never stored, per-project retention (30/90/180/365d) enforced hourly by a cleanup worker with observable `retention_runs`.
@@ -29,6 +29,15 @@ Create your first account in the dashboard (**Register**), or via the API:
 curl -X POST localhost:5000/v1/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"email":"you@example.com","password":"choose-12-plus-chars","workspace_name":"My workspace"}'
+# → "verification_required": true. A one-time link is emailed; in dev
+#   it is printed to the API log instead. Consume it:
+curl -X POST localhost:5000/v1/auth/verify-email \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"dpt_…"}'
+# then log in (login refuses unverified accounts):
+curl -X POST localhost:5000/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"choose-12-plus-chars"}'
 # → save the "token", send it as: Authorization: Bearer <token>
 #   plus: X-Workspace-ID: <workspace_id>
 ```

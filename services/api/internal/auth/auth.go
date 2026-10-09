@@ -22,6 +22,10 @@ const (
 	// sessionPrefix distinguishes human login tokens from workspace API
 	// keys so the two are never confused across endpoints.
 	sessionPrefix = "dps_"
+	// tokenPrefix marks single-purpose email tokens (verification,
+	// password reset). Links travel through inboxes; the prefix makes a
+	// leaked link obviously not a live session credential.
+	tokenPrefix = "dpt_"
 )
 
 type contextKey string
@@ -57,6 +61,12 @@ func Generate() (GeneratedKey, error) {
 // separate.
 func GenerateSession() (GeneratedKey, error) {
 	return generateWithPrefix(sessionPrefix)
+}
+
+// GenerateToken creates a new random single-purpose token (email
+// verification, password reset). Like sessions, only the hash is kept.
+func GenerateToken() (GeneratedKey, error) {
+	return generateWithPrefix(tokenPrefix)
 }
 
 func generateWithPrefix(prefix string) (GeneratedKey, error) {

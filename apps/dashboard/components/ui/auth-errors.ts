@@ -1,27 +1,52 @@
 "use client";
 
+/**
+ * Maps API error messages (internal/users validation strings, proxy
+ * failures, browser network errors) to copy a user can act on. Unknown
+ * messages fall through verbatim so nothing is swallowed.
+ */
 export function friendlyAuthError(message: string, fallback: string): string {
   const lower = message.toLowerCase();
-  if (lower.includes("fetch") || lower.includes("network") || lower.includes("load failed")) {
+  if (
+    lower.includes("fetch") ||
+    lower.includes("network") ||
+    lower.includes("load failed") ||
+    lower.includes("unable to reach")
+  ) {
     return "Can't reach the DevPulse API. Check your connection and that the API is running, then try again.";
   }
-  if (lower.includes("invalid") && lower.includes("credential")) {
+  if (lower.includes("invalid email or password")) {
     return "Incorrect email or password. Check for typos and try again.";
   }
-  if (lower.includes("unauthorized") || lower.includes("401")) {
-    return "Incorrect email or password. Check for typos and try again.";
+  if (lower.includes("not verified")) {
+    return "Check your inbox for your verification link, then try signing in. Didn't get it? Resend below.";
   }
-  if (lower.includes("already") && lower.includes("exist")) {
+  if (lower.includes("invalid or has expired")) {
+    return "This link is invalid or has expired. Request a new one and try again.";
+  }
+  if (lower.includes("already registered")) {
     return "An account with this email already exists. Try signing in instead.";
   }
-  if (lower.includes("password") && (lower.includes("12") || lower.includes("short") || lower.includes("weak"))) {
-    return "Password must be at least 12 characters. Add a few more characters and symbols.";
+  if (lower.includes("password must be at least")) {
+    return "Password must be at least 12 characters. Add a few more characters.";
   }
-  if (lower.includes("email") && lower.includes("valid")) {
+  if (lower.includes("password must not exceed")) {
+    return "Password must not exceed 72 characters.";
+  }
+  if (lower.includes("email must be a valid") || lower.includes("email is required")) {
     return "Enter a valid email address (e.g. you@company.com).";
   }
-  if (lower.includes("rate") || lower.includes("429") || lower.includes("too many")) {
-    return "Too many attempts. Wait a minute and try again.";
+  if (lower.includes("too many") || lower.includes("rate")) {
+    return "Too many attempts from this device. Wait a few minutes and try again.";
+  }
+  if (
+    lower.includes("unable to log in") ||
+    lower.includes("unable to register") ||
+    lower.includes("unable to send") ||
+    lower.includes("unable to verify") ||
+    lower.includes("unable to reset")
+  ) {
+    return "Something went wrong on our side. Try again in a moment.";
   }
   return message || fallback;
 }

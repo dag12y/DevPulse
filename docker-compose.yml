@@ -36,6 +36,13 @@ services:
       GEOIP_DB_PATH: ${GEOIP_DB_PATH:-}
       RETENTION_INTERVAL_MINUTES: ${RETENTION_INTERVAL_MINUTES:-60}
       TRACKER_DIR: /tracker-dist
+      # Auth email (verification + password reset). Without a Resend key
+      # the API prints links to its log (development only — production
+      # refuses to boot, see .env.prod.example). APP_URL is the origin
+      # those links point back to.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: "${EMAIL_FROM:-DevPulse <onboarding@resend.dev>}"
+      APP_URL: ${APP_URL:-http://localhost:3000}
 
     volumes:
       # Mount a local ./geoip directory holding GeoLite2-City.mmdb so the

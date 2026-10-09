@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { safeNext } from "@/lib/paths";
 import AuthShell from "@/components/ui/AuthShell";
 import Button from "@/components/ui/Button";
 import TextField from "@/components/ui/TextField";
@@ -16,7 +17,7 @@ function RegisterForm() {
   const { user, loading: authLoading, register } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/";
+  const next = safeNext(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -55,7 +56,11 @@ function RegisterForm() {
     setBusy(true);
     try {
       await register(trimmed, password, workspaceName.trim() || undefined);
-      router.push(next);
+      // No session yet: send the visitor to the check-your-inbox screen,
+      // which can re-send the link if it never arrives.
+      const params = new URLSearchParams({ email: trimmed });
+      if (next && next !== "/") params.set("next", next);
+      router.push(`/verify-email?${params.toString()}`);
     } catch (err) {
       setFormError(friendlyAuthError(err instanceof Error ? err.message : "", "Registration failed. Please try again."));
     } finally {

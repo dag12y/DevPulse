@@ -24,6 +24,19 @@ const (
 	maxPasswordBytes = 72
 	maxEmailLength   = 254
 	maxNameLength    = 255
+
+	// TokenTTL bounds how long an emailed link stays valid. Verification
+	// gets a day (inbox digests, mobile clients); password reset gets an
+	// hour because it immediately unlocks account takeover.
+	verifyEmailTTL   = 24 * time.Hour
+	passwordResetTTL = time.Hour
+)
+
+// Auth token kinds. One live token per (user, kind): issuing replaces
+// the previous row, consuming deletes it.
+const (
+	TokenVerifyEmail   = "verify_email"
+	TokenPasswordReset = "password_reset"
 )
 
 var (
@@ -43,9 +56,12 @@ var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 // User is the public account shape. Password hashes never leave the store.
 type User struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	CreatedAt time.Time `json:"created_at"`
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	// EmailVerifiedAt is null until the owner has clicked the emailed
+	// verification link; login refuses unverified accounts.
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 // Membership pairs a workspace with the caller's role in it.

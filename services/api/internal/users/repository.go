@@ -23,13 +23,15 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// CreateUser inserts a user with an already-hashed password.
+// CreateUser inserts a user with an already-hashed password. Accounts
+// start unverified; login refuses them until the emailed link flips
+// email_verified_at.
 func (repository *Repository) CreateUser(ctx context.Context, email, passwordHash string) (*User, error) {
 	user := new(User)
 	err := repository.pool.QueryRow(ctx,
 		`INSERT INTO users (email, password_hash) VALUES ($1, $2)
-		 RETURNING id::text, email, created_at`,
-		email, passwordHash).Scan(&user.ID, &user.Email, &user.CreatedAt)
+		 RETURNING id::text, email, email_verified_at, created_at`,
+		email, passwordHash).Scan(&user.ID, &user.Email, &user.EmailVerifiedAt, &user.CreatedAt)
 	if err != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
@@ -45,8 +47,8 @@ func (repository *Repository) FindUserByEmail(ctx context.Context, email string)
 	user := new(User)
 	var hash string
 	err := repository.pool.QueryRow(ctx,
-		`SELECT id::text, email, password_hash, created_at FROM users WHERE email = $1`,
-		email).Scan(&user.ID, &user.Email, &hash, &user.CreatedAt)
+		`SELECT id::text, email, email_verified_at, password_hash, created_at FROM users WHERE email = $1`,
+		email).Scan(&user.ID, &user.Email, &user.EmailVerifiedAt, &hash, &user.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", ErrNotFound
@@ -60,8 +62,8 @@ func (repository *Repository) FindUserByEmail(ctx context.Context, email string)
 func (repository *Repository) FindUserByID(ctx context.Context, userID string) (*User, error) {
 	user := new(User)
 	err := repository.pool.QueryRow(ctx,
-		`SELECT id::text, email, created_at FROM users WHERE id = $1`,
-		userID).Scan(&user.ID, &user.Email, &user.CreatedAt)
+		`SELECT id::text, email, email_verified_at, created_at FROM users WHERE id = $1`,
+		userID).Scan(&user.ID, &user.Email, &user.EmailVerifiedAt, &user.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -125,6 +127,91 @@ func (repository *Repository) TouchSession(ctx context.Context, tokenHash string
 		now.Add(SessionLifetime), tokenHash, now, now.Add(SessionLifetime-renewalInterval))
 	if err != nil {
 		return fmt.Errorf("touch session: %w", err)
+	}
+	return nil
+}
+
+// CreateAuthToken stores a hashed email token, replacing any previous
+// token of the same kind for the same user: at most one live link per
+// purpose, so an old mail can never out-race a newer one.
+func (repository *Repository) CreateAuthToken(ctx context.Context, userID, kind, tokenHash string, expiresAt time.Time) error {
+	_, err := repository.pool.Exec(ctx,
+		`WITH replaced AS (
+			DELETE FROM auth_tokens WHERE user_id = $1 AND kind = $2
+		 )
+		 INSERT INTO auth_tokens (user_id, kind, token_hash, expires_at)
+		 VALUES ($1, $2, $3, $4)`,
+		userID, kind, tokenHash, expiresAt)
+	if err != nil {
+		return fmt.Errorf("create auth token: %w", err)
+	}
+	return nil
+}
+
+// ConsumeAuthToken atomically deletes a live token and returns its
+// owner. Unknown, expired, already-used, and wrong-kind tokens all
+// report ErrNotFound without distinction — links are single-use, and
+// the response must not say which of those happened.
+func (repository *Repository) ConsumeAuthToken(ctx context.Context, kind, tokenHash string, now time.Time) (string, error) {
+	var userID string
+	err := repository.pool.QueryRow(ctx,
+		`DELETE FROM auth_tokens
+		  WHERE token_hash = $1 AND kind = $2 AND expires_at > $3
+		  RETURNING user_id::text`,
+		tokenHash, kind, now).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("consume auth token: %w", err)
+	}
+	return userID, nil
+}
+
+// SetEmailVerified marks an account verified. COALESCE keeps the first
+// verification time rather than overwriting it on re-verification.
+func (repository *Repository) SetEmailVerified(ctx context.Context, userID string) error {
+	tag, err := repository.pool.Exec(ctx,
+		`UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW()
+		  WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("set email verified: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdatePassword rotates the password hash. It also verifies the email:
+// proving control of the inbox (a consumed reset link) is exactly the
+// evidence verification asks for.
+func (repository *Repository) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+	tag, err := repository.pool.Exec(ctx,
+		`UPDATE users
+		  SET password_hash = $2,
+		      email_verified_at = COALESCE(email_verified_at, NOW()),
+		      updated_at = NOW()
+		  WHERE id = $1`, userID, passwordHash)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RevokeAllSessions logs out every device. Password changes call it:
+// whoever requested the reset must not inherit an attacker's existing
+// sessions, and the legitimate owner's other sessions die too (they can
+// sign in again with the new password).
+func (repository *Repository) RevokeAllSessions(ctx context.Context, userID string) error {
+	_, err := repository.pool.Exec(ctx,
+		`UPDATE user_sessions SET revoked_at = NOW()
+		  WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+	if err != nil {
+		return fmt.Errorf("revoke sessions: %w", err)
 	}
 	return nil
 }

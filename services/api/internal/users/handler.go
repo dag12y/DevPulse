@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/dag12y/devpulse/internal/auth"
+	"github.com/dag12y/devpulse/internal/email"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -28,7 +31,16 @@ const (
 	// loginAttemptsPerHour slows online password guessing per IP on top
 	// of bcrypt's per-attempt cost.
 	loginAttemptsPerHour = 20
-	authLimitWindow      = time.Hour
+	// emailSendAttemptsPerHour caps verification/resend/forgot sends per
+	// IP. These endpoints answer 202 regardless of whether an account
+	// exists, so the limit is the only cost an address-harvesting script
+	// pays for burning through inboxes.
+	emailSendAttemptsPerHour = 6
+	// resetAttemptsPerHour caps password-reset submissions per IP. The
+	// token space is 256 bits, so this is belt-and-braces next to
+	// single-use expiry.
+	resetAttemptsPerHour = 10
+	authLimitWindow           = time.Hour
 )
 
 // Store is the persistence boundary for account handlers.
@@ -38,6 +50,11 @@ type Store interface {
 	FindUserByID(ctx context.Context, userID string) (*User, error)
 	CreateSession(ctx context.Context, userID string, token auth.GeneratedKey, expiresAt time.Time) error
 	RevokeSession(ctx context.Context, tokenHash string) error
+	CreateAuthToken(ctx context.Context, userID, kind, tokenHash string, expiresAt time.Time) error
+	ConsumeAuthToken(ctx context.Context, kind, tokenHash string, now time.Time) (string, error)
+	SetEmailVerified(ctx context.Context, userID string) error
+	UpdatePassword(ctx context.Context, userID, passwordHash string) error
+	RevokeAllSessions(ctx context.Context, userID string) error
 	CreateWorkspace(ctx context.Context, userID, name string) (Membership, error)
 	ListWorkspaces(ctx context.Context, userID string) ([]Membership, error)
 	RenameWorkspace(ctx context.Context, userID, workspaceID, name string) (string, error)
@@ -55,9 +72,16 @@ type Handler struct {
 	now             func() time.Time
 	registerLimiter *ipLimiter
 	loginLimiter    *ipLimiter
+	emailLimiter    *ipLimiter
+	resetLimiter    *ipLimiter
 	// secureCookies switches the session cookie to the __Host- name with
 	// the Secure attribute (production behind TLS).
 	secureCookies bool
+	// mailer delivers verification and reset links. Defaults to the dev
+	// log sender so no configuration can silently drop auth mail.
+	mailer email.Sender
+	// appURL is the public dashboard origin links point back to.
+	appURL string
 }
 
 // Option customises handler behaviour. Production passes
@@ -70,12 +94,31 @@ func WithSecureCookies(secure bool) Option {
 	}
 }
 
+// WithEmailSender selects the outbound delivery (Resend in production,
+// the log sender in development).
+func WithEmailSender(sender email.Sender) Option {
+	return func(handler *Handler) {
+		handler.mailer = sender
+	}
+}
+
+// WithAppURL sets the origin verification/reset links are built from.
+func WithAppURL(appURL string) Option {
+	return func(handler *Handler) {
+		handler.appURL = appURL
+	}
+}
+
 func NewHandler(store Store, options ...Option) *Handler {
 	handler := &Handler{
 		store:           store,
 		now:             time.Now,
 		registerLimiter: newIPLimiter(registerAttemptsPerHour, authLimitWindow),
 		loginLimiter:    newIPLimiter(loginAttemptsPerHour, authLimitWindow),
+		emailLimiter:    newIPLimiter(emailSendAttemptsPerHour, authLimitWindow),
+		resetLimiter:    newIPLimiter(resetAttemptsPerHour, authLimitWindow),
+		mailer:          email.NewLog(),
+		appURL:          "http://localhost:3000",
 	}
 	for _, option := range options {
 		option(handler)
@@ -89,9 +132,11 @@ type registerInput struct {
 	WorkspaceName string `json:"workspace_name"`
 }
 
-// Register creates a user, a personal workspace owned by them, and a first
-// session. Every account starts isolated: it can never see another
-// workspace without an explicit membership.
+// Register creates a user, a personal workspace owned by them, and a
+// pending email-verification token. Every account starts isolated: it
+// can never see another workspace without an explicit membership. No
+// session is issued yet — login refuses unverified accounts, so the
+// emailed link is the front door.
 func (handler *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	if !handler.registerLimiter.Allow(auth.ClientIP(r)) {
 		w.Header().Set("Retry-After", "3600")
@@ -144,18 +189,16 @@ func (handler *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "unable to register")
 		return
 	}
-	token, expiresAt, err := handler.newSession(r.Context(), user.ID)
-	if err != nil {
-		slog.Error("create registration session", "error", err)
-		writeError(w, http.StatusInternalServerError, "unable to register")
-		return
+	// The account exists either way; a failed mail only delays the user
+	// (the verify page's resend button re-issues), so never fail the
+	// signup itself.
+	if err := handler.issueVerification(r.Context(), user.ID, user.Email); err != nil {
+		slog.Error("issue verification token", "error", err)
 	}
-	handler.setSessionCookie(w, token, expiresAt)
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"user":       user,
-		"workspace":  membership,
-		"token":      token,
-		"expires_at": expiresAt,
+		"user":                  user,
+		"workspace":             membership,
+		"verification_required": true,
 	})
 }
 
@@ -198,6 +241,13 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
+	// Checked after the password so the branch is only reachable by
+	// someone who already proves account knowledge — no registration
+	// oracle for wrong-password probes.
+	if user.EmailVerifiedAt == nil {
+		writeError(w, http.StatusForbidden, "email address not verified")
+		return
+	}
 	token, expiresAt, err := handler.newSession(r.Context(), user.ID)
 	if err != nil {
 		slog.Error("create login session", "error", err)
@@ -234,6 +284,242 @@ func (handler *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	handler.clearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type verifyEmailInput struct {
+	Token string `json:"token"`
+}
+
+// VerifyEmail activates an account from the emailed link. The token is
+// consumed atomically before the account flips: a link works exactly
+// once, and unknown/expired/used tokens report the same error.
+func (handler *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var input verifyEmailInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if input.Token == "" {
+		writeError(w, http.StatusBadRequest, "verification link is invalid or has expired")
+		return
+	}
+	userID, err := handler.store.ConsumeAuthToken(r.Context(), TokenVerifyEmail, auth.Hash(input.Token), handler.now().UTC())
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "verification link is invalid or has expired")
+		return
+	}
+	if err != nil {
+		slog.Error("consume verification token", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to verify email")
+		return
+	}
+	if err := handler.store.SetEmailVerified(r.Context(), userID); err != nil {
+		slog.Error("mark email verified", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to verify email")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"verified": true})
+}
+
+type resendVerificationInput struct {
+	Email string `json:"email"`
+}
+
+// ResendVerification re-issues the link for an unverified account. The
+// 202 body is identical for unknown, verified, and unverified
+// addresses so the endpoint never confirms which emails are registered.
+func (handler *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	if !handler.emailLimiter.Allow(auth.ClientIP(r)) {
+		w.Header().Set("Retry-After", "3600")
+		writeError(w, http.StatusTooManyRequests, "too many email requests")
+		return
+	}
+	var input resendVerificationInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	email, err := NormalizeEmail(input.Email)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	user, _, err := handler.store.FindUserByEmail(r.Context(), email)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		slog.Error("find user for verification resend", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to send verification email")
+		return
+	}
+	if err == nil && user.EmailVerifiedAt == nil {
+		if err := handler.issueVerification(r.Context(), user.ID, user.Email); err != nil {
+			slog.Error("issue verification token", "error", err)
+		}
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "sent"})
+}
+
+type forgotPasswordInput struct {
+	Email string `json:"email"`
+}
+
+// ForgotPassword starts a reset by emailing a one-hour link. Like
+// resend, the 202 answer never reveals whether the address exists.
+func (handler *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	if !handler.emailLimiter.Allow(auth.ClientIP(r)) {
+		w.Header().Set("Retry-After", "3600")
+		writeError(w, http.StatusTooManyRequests, "too many email requests")
+		return
+	}
+	var input forgotPasswordInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	email, err := NormalizeEmail(input.Email)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	user, _, err := handler.store.FindUserByEmail(r.Context(), email)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		slog.Error("find user for password reset", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to send reset email")
+		return
+	}
+	if err == nil {
+		if err := handler.issuePasswordReset(r.Context(), user.ID, user.Email); err != nil {
+			slog.Error("issue password reset token", "error", err)
+		}
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "sent"})
+}
+
+type resetPasswordInput struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
+// ResetPassword consumes the emailed token, rotates the hash, verifies
+// the email (inbox control is the same evidence verification asks for),
+// and revokes every session the account holds.
+func (handler *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	if !handler.resetLimiter.Allow(auth.ClientIP(r)) {
+		w.Header().Set("Retry-After", "3600")
+		writeError(w, http.StatusTooManyRequests, "too many reset attempts")
+		return
+	}
+	var input resetPasswordInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := ValidatePassword(input.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if input.Token == "" {
+		writeError(w, http.StatusBadRequest, "reset link is invalid or has expired")
+		return
+	}
+	userID, err := handler.store.ConsumeAuthToken(r.Context(), TokenPasswordReset, auth.Hash(input.Token), handler.now().UTC())
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "reset link is invalid or has expired")
+		return
+	}
+	if err != nil {
+		slog.Error("consume password reset token", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to reset password")
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcryptCost)
+	if err != nil {
+		slog.Error("hash reset password", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to reset password")
+		return
+	}
+	if err := handler.store.UpdatePassword(r.Context(), userID, string(hash)); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusBadRequest, "reset link is invalid or has expired")
+			return
+		}
+		slog.Error("update password", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to reset password")
+		return
+	}
+	// A revoke failure is logged, not surfaced: the password DID change,
+	// and failing the response would claim otherwise while the
+	// single-use token is already spent. Residual sessions die at
+	// expiry; the log entry is the operator's cue.
+	if err := handler.store.RevokeAllSessions(r.Context(), userID); err != nil {
+		slog.Error("revoke sessions after password reset", "error", err, "user_id", userID)
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"password_updated": true})
+}
+
+// issueVerification stores a fresh verification token for the user and
+// emails the link. Replaces any previous verification token.
+func (handler *Handler) issueVerification(ctx context.Context, userID, address string) error {
+	token, err := auth.GenerateToken()
+	if err != nil {
+		return err
+	}
+	expiresAt := handler.now().UTC().Add(verifyEmailTTL)
+	if err := handler.store.CreateAuthToken(ctx, userID, TokenVerifyEmail, token.Hash, expiresAt); err != nil {
+		return err
+	}
+	link := handler.appURL + "/verify-email?token=" + url.QueryEscape(token.Raw)
+	handler.dispatchEmail(email.Message{
+		To:      address,
+		Subject: "Verify your email for DevPulse",
+		Text: "Confirm your email address to activate your DevPulse account.\n\n" +
+			"Open this link to verify:\n" + link + "\n\n" +
+			"The link expires in 24 hours. If you didn't create a DevPulse account, you can ignore this email.",
+		HTML: "<p>Confirm your email address to activate your DevPulse account.</p>" +
+			`<p><a href="` + html.EscapeString(link) + `">Verify my email</a></p>` +
+			"<p>The link expires in 24 hours. If you didn't create a DevPulse account, you can ignore this email.</p>",
+	})
+	return nil
+}
+
+// issuePasswordReset stores a one-hour reset token and emails the link.
+// It replaces any previous reset token — and any pending verification
+// link still works independently, since kinds never collide.
+func (handler *Handler) issuePasswordReset(ctx context.Context, userID, address string) error {
+	token, err := auth.GenerateToken()
+	if err != nil {
+		return err
+	}
+	expiresAt := handler.now().UTC().Add(passwordResetTTL)
+	if err := handler.store.CreateAuthToken(ctx, userID, TokenPasswordReset, token.Hash, expiresAt); err != nil {
+		return err
+	}
+	link := handler.appURL + "/reset-password?token=" + url.QueryEscape(token.Raw)
+	handler.dispatchEmail(email.Message{
+		To:      address,
+		Subject: "Reset your DevPulse password",
+		Text: "Someone asked to reset the password for this DevPulse account.\n\n" +
+			"Open this link to choose a new password:\n" + link + "\n\n" +
+			"The link expires in 1 hour. If you didn't request this, you can ignore this email — your password is unchanged.",
+		HTML: "<p>Someone asked to reset the password for this DevPulse account.</p>" +
+			`<p><a href="` + html.EscapeString(link) + `">Choose a new password</a></p>` +
+			"<p>The link expires in 1 hour. If you didn't request this, you can ignore this email — your password is unchanged.</p>",
+	})
+	return nil
+}
+
+// dispatchEmail sends in the background. Auth mail is fire-and-forget:
+// the HTTP answer must not depend on provider latency — a synchronous
+// forgot-password call would reveal, by timing, which addresses are
+// registered — and a slow provider must never stall a signup. Failures
+// log; the resend button is the retry path.
+func (handler *Handler) dispatchEmail(message email.Message) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := handler.mailer.Send(ctx, message); err != nil {
+			slog.Error("send auth email", "error", err, "to", message.To, "subject", message.Subject)
+		}
+	}()
 }
 
 // Me returns the caller plus every workspace they belong to. It also

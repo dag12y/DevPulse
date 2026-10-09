@@ -42,9 +42,11 @@ wrote $TARGET (mode 600)
   CORS_ALLOWED_ORIGINS=$PUBLIC_DASHBOARD_URL
 next (1 GiB VPS: dashboard on Vercel, API + Postgres on VPS):
   1. review $TARGET (set CORS_ALLOWED_ORIGINS to your Vercel URL)
-  2. on the VPS: sudo ./scripts/enable-swap.sh 2
-  3. docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.vps.yml up -d --build
-  4. deploy apps/dashboard on Vercel with NEXT_PUBLIC_API_URL=$PUBLIC_API_URL
+  2. set RESEND_API_KEY and EMAIL_FROM (auth email; the API refuses to
+     boot in production without them) and check APP_URL
+  3. on the VPS: sudo ./scripts/enable-swap.sh 2
+  4. docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.vps.yml up -d --build
+  5. deploy apps/dashboard on Vercel with NEXT_PUBLIC_API_URL=$PUBLIC_API_URL
 full-stack alternative (2GB+ RAM only):
   docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 EOF

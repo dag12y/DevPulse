@@ -316,6 +316,8 @@ export interface AuthResponse {
   token?: string;
   expires_at?: string;
   workspace?: WorkspaceMembership;
+  /** Set by register: the account exists but login waits for the emailed link. */
+  verification_required?: boolean;
 }
 
 export function register(email: string, password: string, workspaceName?: string): Promise<AuthResponse> {
@@ -334,6 +336,35 @@ export function login(email: string, password: string): Promise<AuthResponse> {
 
 export function logout(): Promise<void> {
   return fetchAPI<void>("/v1/auth/logout", { method: "POST" }).catch(() => undefined);
+}
+
+export function verifyEmail(token: string): Promise<{ verified: boolean }> {
+  return fetchAPI<{ verified: boolean }>("/v1/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+/** Always 202 from the API: the response never reveals whether the address exists. */
+export function resendVerification(email: string): Promise<{ status: string }> {
+  return fetchAPI<{ status: string }>("/v1/auth/resend-verification", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function forgotPassword(email: string): Promise<{ status: string }> {
+  return fetchAPI<{ status: string }>("/v1/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(token: string, password: string): Promise<{ password_updated: boolean }> {
+  return fetchAPI<{ password_updated: boolean }>("/v1/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, password }),
+  });
 }
 
 export function getMe(): Promise<{ user: AuthUser; workspaces: WorkspaceMembership[] }> {

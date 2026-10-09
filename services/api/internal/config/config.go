@@ -22,6 +22,17 @@ type Config struct {
 	// override with SESSION_COOKIE_SECURE (e.g. TLS-terminating proxy in
 	// front of a development API).
 	SessionCookieSecure bool
+	// ResendAPIKey selects Resend as the email provider. Unset means the
+	// dev log sender, which prints verification/reset links to the
+	// process log — fine in development, never acceptable in production
+	// (Validate enforces that).
+	ResendAPIKey string
+	// EmailFrom is the default From header for auth mail.
+	EmailFrom string
+	// AppURL is the public dashboard origin; verification and reset
+	// links are built as AppURL + path. OAuth callbacks also live on
+	// this origin (via the dashboard's /api proxy).
+	AppURL string
 }
 
 func Load() Config {
@@ -35,6 +46,9 @@ func Load() Config {
 		AllowedOrigins:           getListEnv("CORS_ALLOWED_ORIGINS"),
 		TrackerDir:               os.Getenv("TRACKER_DIR"),
 		SessionCookieSecure:      getBoolEnv("SESSION_COOKIE_SECURE", appEnv == "production"),
+		ResendAPIKey:             os.Getenv("RESEND_API_KEY"),
+		EmailFrom:                getEnv("EMAIL_FROM", "DevPulse <onboarding@resend.dev>"),
+		AppURL:                   strings.TrimRight(getEnv("APP_URL", "http://localhost:3000"), "/"),
 	}
 }
 
@@ -48,6 +62,17 @@ func (config Config) Validate() error {
 	}
 	if config.AppEnv == "production" && len(config.AllowedOrigins) == 0 {
 		return errors.New("CORS_ALLOWED_ORIGINS must be set in production (comma-separated origins)")
+	}
+	if config.AppEnv == "production" {
+		// Without a provider the dev log sender would print verification
+		// and reset links into production logs — anyone with log access
+		// could take over accounts. Refuse to boot instead.
+		if config.ResendAPIKey == "" {
+			return errors.New("RESEND_API_KEY must be set in production (Resend API key for auth email)")
+		}
+		if config.AppURL == "" {
+			return errors.New("APP_URL must be set in production (public dashboard origin, e.g. https://app.example.com)")
+		}
 	}
 	return nil
 }

@@ -91,6 +91,11 @@ func TestUserLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	userIDs = append(userIDs, bob.ID)
+	// Login refuses unverified accounts; verify Bob the way the emailed
+	// link would (SetEmailVerified is the endpoint's store call).
+	if err := repository.SetEmailVerified(ctx, bob.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	added, err := repository.AddMember(ctx, membership.WorkspaceID, "bob@example.com", auth.RoleViewer)
 	if err != nil {
@@ -320,5 +325,234 @@ func TestWorkspaceRenameDelete(t *testing.T) {
 		if firstList[i] != secondList[i] {
 			t.Fatalf("list order unstable: %+v vs %+v", firstList, secondList)
 		}
+	}
+}
+
+// TestTouchSessionSlidesExpiry covers sliding renewal against Postgres:
+// an active session is extended at most once per renewalInterval, while
+// revoked sessions keep their original expiry for retention.
+func TestTouchSessionSlidesExpiry(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	repository := NewRepository(pool)
+
+	user, err := repository.CreateUser(ctx, "touch@example.com", hashForTest(t, "correct-horse-12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, user.ID)
+	}()
+
+	expiresAt := func(hash string) time.Time {
+		t.Helper()
+		var expiry time.Time
+		if err := pool.QueryRow(ctx,
+			`SELECT expires_at FROM user_sessions WHERE token_hash = $1`, hash).Scan(&expiry); err != nil {
+			t.Fatalf("read expires_at: %v", err)
+		}
+		return expiry
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	token, err := auth.GenerateSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CreateSession(ctx, user.ID, token, now.Add(SessionLifetime)); err != nil {
+		t.Fatal(err)
+	}
+	// A touch within renewalInterval of the stored expiry must not write
+	// (throttled): the expiry stays at now + SessionLifetime.
+	soon := now.Add(renewalInterval / 2)
+	if err := repository.TouchSession(ctx, token.Hash, soon); err != nil {
+		t.Fatal(err)
+	}
+	if got := expiresAt(token.Hash); !got.Equal(now.Add(SessionLifetime)) {
+		t.Fatalf("throttled touch changed expiry to %v, want %v", got, now.Add(SessionLifetime))
+	}
+
+	// Once renewalInterval has passed the same touch extends the session.
+	later := now.Add(renewalInterval)
+	if err := repository.TouchSession(ctx, token.Hash, later); err != nil {
+		t.Fatal(err)
+	}
+	if got := expiresAt(token.Hash); !got.Equal(later.Add(SessionLifetime)) {
+		t.Fatalf("expiry = %v, want %v", got, later.Add(SessionLifetime))
+	}
+
+	// Revoked sessions are never extended.
+	if err := repository.RevokeSession(ctx, token.Hash); err != nil {
+		t.Fatal(err)
+	}
+	revokedExpiry := expiresAt(token.Hash)
+	if err := repository.TouchSession(ctx, token.Hash, later.Add(2*renewalInterval)); err != nil {
+		t.Fatal(err)
+	}
+	if got := expiresAt(token.Hash); !got.Equal(revokedExpiry) {
+		t.Fatalf("revoked expiry = %v, want unchanged %v", got, revokedExpiry)
+	}
+}
+
+// TestEmailVerificationFlow exercises the full signup gate against
+// Postgres: register issues no session, login is refused until the
+// emailed link is consumed, resending replaces the old link, and links
+// are single-use.
+func TestEmailVerificationFlow(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	repository := NewRepository(pool)
+	sender := &recordingSender{}
+	handler := NewHandler(repository, WithEmailSender(sender), WithAppURL("https://app.example.com"))
+
+	const address = "verify-flow@example.com"
+	var userID string
+	defer func() {
+		if userID == "" {
+			return
+		}
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM workspaces WHERE id IN (SELECT workspace_id FROM workspace_members WHERE user_id = $1)`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	}()
+
+	login := func(password string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		handler.Login(recorder, httptest.NewRequest(http.MethodPost, "/v1/auth/login",
+			strings.NewReader(`{"email":"`+address+`","password":"`+password+`"}`)))
+		return recorder
+	}
+	verify := func(token string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		handler.VerifyEmail(recorder, httptest.NewRequest(http.MethodPost, "/v1/auth/verify-email",
+			strings.NewReader(`{"token":"`+token+`"}`)))
+		return recorder
+	}
+
+	register := httptest.NewRecorder()
+	handler.Register(register, httptest.NewRequest(http.MethodPost, "/v1/auth/register",
+		strings.NewReader(`{"email":"`+address+`","password":"correct-horse-12"}`)))
+	if register.Code != http.StatusCreated {
+		t.Fatalf("register: status=%d body=%s", register.Code, register.Body.String())
+	}
+	if strings.Contains(register.Body.String(), `"token"`) {
+		t.Fatalf("register must not issue a session: %s", register.Body.String())
+	}
+	if len(register.Result().Cookies()) != 0 {
+		t.Fatal("register must not set cookies")
+	}
+	if err := pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email = $1`, address).Scan(&userID); err != nil {
+		t.Fatalf("read created user: %v", err)
+	}
+
+	if got := login("correct-horse-12"); got.Code != http.StatusForbidden {
+		t.Fatalf("login before verify: status=%d body=%s, want 403", got.Code, got.Body.String())
+	}
+
+	first := tokenFromMessage(t, sender.wait(t, address))
+
+	// Resending replaces the pending link: the original must die.
+	resend := httptest.NewRecorder()
+	handler.ResendVerification(resend, httptest.NewRequest(http.MethodPost, "/v1/auth/resend-verification",
+		strings.NewReader(`{"email":"`+address+`"}`)))
+	if resend.Code != http.StatusAccepted {
+		t.Fatalf("resend: status=%d body=%s", resend.Code, resend.Body.String())
+	}
+	if got := verify(first); got.Code != http.StatusBadRequest {
+		t.Fatalf("replaced link: status=%d, want 400", got.Code)
+	}
+
+	messages := sender.await(t, address, 2)
+	second := tokenFromMessage(t, messages[1])
+	if got := verify(second); got.Code != http.StatusOK {
+		t.Fatalf("verify: status=%d body=%s", got.Code, got.Body.String())
+	}
+	if got := verify(second); got.Code != http.StatusBadRequest {
+		t.Fatalf("link reuse: status=%d, want 400", got.Code)
+	}
+
+	verifiedLogin := login("correct-horse-12")
+	if verifiedLogin.Code != http.StatusOK || !strings.Contains(verifiedLogin.Body.String(), `"token":"dps_`) {
+		t.Fatalf("login after verify: status=%d body=%s", verifiedLogin.Code, verifiedLogin.Body.String())
+	}
+}
+
+// TestPasswordResetFlow covers forgot/reset against Postgres: the link
+// rotates the password, verifies the email (inbox control is the same
+// evidence), revokes every existing session, and works exactly once.
+func TestPasswordResetFlow(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	repository := NewRepository(pool)
+	sender := &recordingSender{}
+	handler := NewHandler(repository, WithEmailSender(sender), WithAppURL("https://app.example.com"))
+
+	const address = "reset-flow@example.com"
+	user, err := repository.CreateUser(ctx, address, hashForTest(t, "correct-horse-12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sessionHash string
+	defer func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM workspaces WHERE id IN (SELECT workspace_id FROM workspace_members WHERE user_id = $1)`, user.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, user.ID)
+	}()
+	membership, err := repository.CreateWorkspace(ctx, user.ID, "Reset Co")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = membership
+
+	// A live session that the reset must kill.
+	existing, err := auth.GenerateSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionHash = existing.Hash
+	if err := repository.CreateSession(ctx, user.ID, existing, time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	forgot := httptest.NewRecorder()
+	handler.ForgotPassword(forgot, httptest.NewRequest(http.MethodPost, "/v1/auth/forgot-password",
+		strings.NewReader(`{"email":"`+address+`"}`)))
+	if forgot.Code != http.StatusAccepted {
+		t.Fatalf("forgot: status=%d body=%s", forgot.Code, forgot.Body.String())
+	}
+	raw := tokenFromMessage(t, sender.wait(t, address))
+
+	reset := func(token, password string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		handler.ResetPassword(recorder, httptest.NewRequest(http.MethodPost, "/v1/auth/reset-password",
+			strings.NewReader(`{"token":"`+token+`","password":"`+password+`"}`)))
+		return recorder
+	}
+	good := reset(raw, "brand-new-password-42")
+	if good.Code != http.StatusOK || !strings.Contains(good.Body.String(), `"password_updated":true`) {
+		t.Fatalf("reset: status=%d body=%s", good.Code, good.Body.String())
+	}
+
+	if _, ok, err := repository.FindSession(ctx, sessionHash, time.Now().UTC()); err != nil || ok {
+		t.Fatalf("pre-reset session still valid: ok=%v err=%v; want revoked", ok, err)
+	}
+
+	login := func(password string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		handler.Login(recorder, httptest.NewRequest(http.MethodPost, "/v1/auth/login",
+			strings.NewReader(`{"email":"`+address+`","password":"`+password+`"}`)))
+		return recorder
+	}
+	if got := login("correct-horse-12"); got.Code != http.StatusUnauthorized {
+		t.Fatalf("old password: status=%d, want 401", got.Code)
+	}
+	// The reset also verified the account: login works without a
+	// separate verification step.
+	if got := login("brand-new-password-42"); got.Code != http.StatusOK {
+		t.Fatalf("new password: status=%d body=%s", got.Code, got.Body.String())
+	}
+
+	if got := reset(raw, "another-password-99"); got.Code != http.StatusBadRequest {
+		t.Fatalf("link reuse: status=%d, want 400", got.Code)
 	}
 }
