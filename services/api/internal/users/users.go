@@ -50,6 +50,11 @@ var (
 	// both own "Acme", but one user may not own it twice — identical rows
 	// are indistinguishable in the workspace switcher.
 	ErrNameTaken = errors.New("workspace name is already in use")
+	// ErrOAuthConflict reports an OAuth identity already bound to a
+	// different user. Refusing the link is the only safe answer —
+	// rebinding would let the second claimant take over the first
+	// account.
+	ErrOAuthConflict = errors.New("oauth identity is already linked to another account")
 )
 
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)

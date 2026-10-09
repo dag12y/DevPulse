@@ -10,7 +10,8 @@ import AuthShell from "@/components/ui/AuthShell";
 import Button from "@/components/ui/Button";
 import TextField from "@/components/ui/TextField";
 import PasswordField from "@/components/ui/PasswordField";
-import { friendlyAuthError } from "@/components/ui/auth-errors";
+import OAuthButtons from "@/components/ui/OAuthButtons";
+import { friendlyAuthError, friendlyOAuthError } from "@/components/ui/auth-errors";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -23,7 +24,12 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  // Failed OAuth callbacks bounce here with a fixed ?error= code; seed
+  // the banner from it instead of setState-in-effect.
+  const [formError, setFormError] = useState<string | null>(() => {
+    const oauthCode = searchParams.get("error");
+    return oauthCode ? friendlyOAuthError(oauthCode) : null;
+  });
   const [busy, setBusy] = useState(false);
   // True after a 403 "email address not verified": offer a resend for
   // the address already typed into the form.
@@ -119,6 +125,7 @@ function LoginForm() {
         )}
         <Button loading={busy}>{busy ? "Signing in..." : "Sign in"}</Button>
       </form>
+      <OAuthButtons next={next} />
     </AuthShell>
   );
 }

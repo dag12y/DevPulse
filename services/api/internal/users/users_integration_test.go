@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/dag12y/devpulse/internal/auth"
 	"github.com/dag12y/devpulse/internal/database"
+	"github.com/dag12y/devpulse/internal/oauth"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -554,5 +556,159 @@ func TestPasswordResetFlow(t *testing.T) {
 
 	if got := reset(raw, "another-password-99"); got.Code != http.StatusBadRequest {
 		t.Fatalf("link reuse: status=%d, want 400", got.Code)
+	}
+}
+
+// TestOAuthFlow exercises the GitHub round-trip against Postgres: start
+// stores a hashed state, the callback consumes it, creates a verified
+// account with its own workspace, links the identity, and sets the
+// session cookie. A repeat login reuses the account, a password account
+// with the same email is adopted instead of duplicated, and expired or
+// replayed states are refused.
+func TestOAuthFlow(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	repository := NewRepository(pool)
+	provider := &stubProvider{name: "github", identity: oauth.Identity{
+		ProviderUserID: "gh-oauth-1",
+		Email:          "oauth-flow@example.com",
+		EmailVerified:  true,
+	}}
+	handler := NewHandler(repository, WithOAuthProviders(map[string]oauth.Provider{"github": provider}))
+
+	var createdUserIDs []string
+	defer func() {
+		for _, id := range createdUserIDs {
+			_, _ = pool.Exec(ctx, `DELETE FROM workspaces WHERE id IN (SELECT workspace_id FROM workspace_members WHERE user_id = $1)`, id)
+			_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+		}
+	}()
+
+	start := func() string {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/v1/auth/oauth/github/start?next=/projects", nil)
+		request.SetPathValue("provider", "github")
+		handler.OAuthStart(recorder, request)
+		if recorder.Code != http.StatusFound {
+			t.Fatalf("start: status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+		location, err := recorder.Result().Location()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return location.Query().Get("state")
+	}
+	callback := func(state, code string) *httptest.ResponseRecorder {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet,
+			"/v1/auth/oauth/github/callback?state="+url.QueryEscape(state)+"&code="+code, nil)
+		request.SetPathValue("provider", "github")
+		handler.OAuthCallback(recorder, request)
+		return recorder
+	}
+
+	// First login: account, workspace, binding, session cookie.
+	first := callback(start(), "authcode")
+	if first.Code != http.StatusFound {
+		t.Fatalf("callback: status=%d body=%s", first.Code, first.Body.String())
+	}
+	if location, _ := first.Result().Location(); location == nil || location.Path != "/projects" {
+		t.Fatalf("callback redirect = %v, want /projects", location)
+	}
+	if cookie := first.Header().Get("Set-Cookie"); !strings.Contains(cookie, sessionCookieName+"=") {
+		t.Fatalf("Set-Cookie = %q, want session cookie", cookie)
+	}
+
+	var createdID string
+	var verified bool
+	if err := pool.QueryRow(ctx,
+		`SELECT id, email_verified_at IS NOT NULL FROM users WHERE email = 'oauth-flow@example.com'`,
+	).Scan(&createdID, &verified); err != nil {
+		t.Fatalf("created user: %v", err)
+	}
+	createdUserIDs = append(createdUserIDs, createdID)
+	if !verified {
+		t.Fatal("oauth-created account must be email-verified")
+	}
+	var memberships, bindings int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM workspace_members WHERE user_id = $1`, createdID).Scan(&memberships); err != nil {
+		t.Fatal(err)
+	}
+	if memberships != 1 {
+		t.Fatalf("memberships = %d, want 1 personal workspace", memberships)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM oauth_accounts
+		  WHERE provider = 'github' AND provider_user_id = 'gh-oauth-1' AND user_id = $1`,
+		createdID).Scan(&bindings); err != nil {
+		t.Fatal(err)
+	}
+	if bindings != 1 {
+		t.Fatalf("bindings = %d, want 1", bindings)
+	}
+
+	// States are single-use; missing or empty states are refused.
+	if replay := callback("never-issued-state", "x"); replay.Code != http.StatusBadRequest {
+		t.Fatalf("bogus state: status=%d, want 400", replay.Code)
+	}
+	if reuse := callback("", "x"); reuse.Code != http.StatusBadRequest {
+		t.Fatalf("empty state: status=%d, want 400", reuse.Code)
+	}
+
+	// Second login reuses the account: still exactly one user.
+	second := callback(start(), "authcode2")
+	if second.Code != http.StatusFound {
+		t.Fatalf("second callback: status=%d body=%s", second.Code, second.Body.String())
+	}
+	var userCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM users WHERE email = 'oauth-flow@example.com'`).Scan(&userCount); err != nil {
+		t.Fatal(err)
+	}
+	if userCount != 1 {
+		t.Fatalf("user count = %d, want 1", userCount)
+	}
+
+	// Adopting an existing password account: link + verify, no duplicate.
+	adoptEmail := "adopt-flow@example.com"
+	adopted, err := repository.CreateUser(ctx, adoptEmail, hashForTest(t, "correct-horse-12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdUserIDs = append(createdUserIDs, adopted.ID)
+	provider.identity = oauth.Identity{ProviderUserID: "gh-oauth-2", Email: adoptEmail, EmailVerified: true}
+	if adopt := callback(start(), "adoptcode"); adopt.Code != http.StatusFound {
+		t.Fatalf("adopt callback: status=%d body=%s", adopt.Code, adopt.Body.String())
+	}
+	var adoptedID string
+	if err := pool.QueryRow(ctx,
+		`SELECT user_id::text FROM oauth_accounts WHERE provider = 'github' AND provider_user_id = 'gh-oauth-2'`,
+	).Scan(&adoptedID); err != nil {
+		t.Fatalf("adopted binding: %v", err)
+	}
+	if adoptedID != adopted.ID {
+		t.Fatalf("adopted binding user = %s, want %s", adoptedID, adopted.ID)
+	}
+	login := httptest.NewRecorder()
+	handler.Login(login, httptest.NewRequest(http.MethodPost, "/v1/auth/login",
+		strings.NewReader(`{"email":"`+adoptEmail+`","password":"correct-horse-12"}`)))
+	if login.Code != http.StatusOK {
+		t.Fatalf("password login after adoption: status=%d body=%s; want verified account", login.Code, login.Body.String())
+	}
+
+	// Expired states are refused.
+	expiredRaw, expiredHash, err := oauth.GenerateState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CreateOAuthState(ctx, "github", expiredHash, "verifier", "/",
+		time.Now().UTC().Add(-2*time.Hour), time.Now().UTC().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if expired := callback(expiredRaw, "c"); expired.Code != http.StatusBadRequest {
+		t.Fatalf("expired state: status=%d, want 400", expired.Code)
 	}
 }

@@ -9,6 +9,7 @@ import AuthShell from "@/components/ui/AuthShell";
 import Button from "@/components/ui/Button";
 import TextField from "@/components/ui/TextField";
 import PasswordField from "@/components/ui/PasswordField";
+import OAuthButtons from "@/components/ui/OAuthButtons";
 import { friendlyAuthError } from "@/components/ui/auth-errors";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -87,6 +88,7 @@ function RegisterForm() {
         <Button loading={busy}>{busy ? "Creating..." : "Create account"}</Button>
         <p className="text-center text-xs leading-5 text-zinc-400 dark:text-zinc-500">By creating an account you agree to the Terms and Privacy Policy.</p>
       </form>
+      <OAuthButtons next={next} />
     </AuthShell>
   );
 }

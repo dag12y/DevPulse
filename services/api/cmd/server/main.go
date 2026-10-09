@@ -14,6 +14,7 @@ import (
 	"github.com/dag12y/devpulse/internal/email"
 	internalhttp "github.com/dag12y/devpulse/internal/http"
 	"github.com/dag12y/devpulse/internal/metrics"
+	"github.com/dag12y/devpulse/internal/oauth"
 	"github.com/dag12y/devpulse/internal/projects"
 	"github.com/dag12y/devpulse/internal/retention"
 	"github.com/dag12y/devpulse/internal/tracker"
@@ -63,10 +64,32 @@ func main() {
 		mailSender = email.NewResend(cfg.ResendAPIKey, cfg.EmailFrom)
 	}
 
+	// OAuth: each provider needs both halves of its credential pair;
+	// anything less means the operator only half-configured it, so the
+	// provider stays off (the list endpoint hides the button).
+	oauthProviders := map[string]oauth.Provider{}
+	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" {
+		oauthProviders["github"] = &oauth.GitHub{
+			ClientID:     cfg.GitHubClientID,
+			ClientSecret: cfg.GitHubClientSecret,
+		}
+	} else {
+		slog.Info("GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET unset: GitHub login disabled")
+	}
+	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
+		oauthProviders["google"] = &oauth.Google{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleClientSecret,
+		}
+	} else {
+		slog.Info("GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET unset: Google login disabled")
+	}
+
 	usersHandler := users.NewHandler(usersRepository,
 		users.WithSecureCookies(cfg.SessionCookieSecure),
 		users.WithEmailSender(mailSender),
 		users.WithAppURL(cfg.AppURL),
+		users.WithOAuthProviders(oauthProviders),
 	)
 
 	var geo analytics.GeoResolver = analytics.NullGeoResolver{}
@@ -151,6 +174,9 @@ func main() {
 	mux.HandleFunc("POST /v1/auth/resend-verification", usersHandler.ResendVerification)
 	mux.HandleFunc("POST /v1/auth/forgot-password", usersHandler.ForgotPassword)
 	mux.HandleFunc("POST /v1/auth/reset-password", usersHandler.ResetPassword)
+	mux.HandleFunc("GET /v1/auth/oauth/providers", usersHandler.OAuthProviderList)
+	mux.HandleFunc("GET /v1/auth/oauth/{provider}/start", usersHandler.OAuthStart)
+	mux.HandleFunc("GET /v1/auth/oauth/{provider}/callback", usersHandler.OAuthCallback)
 	mux.HandleFunc("GET /v1/auth/me", requireSession(usersHandler.Me))
 	mux.HandleFunc("POST /v1/workspaces", requireSession(usersHandler.CreateWorkspace))
 	mux.HandleFunc("GET /v1/workspaces", requireSession(usersHandler.ListWorkspaces))

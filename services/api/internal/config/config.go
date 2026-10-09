@@ -33,6 +33,12 @@ type Config struct {
 	// links are built as AppURL + path. OAuth callbacks also live on
 	// this origin (via the dashboard's /api proxy).
 	AppURL string
+	// GitHubClientID/Secret enable GitHub login when both are set.
+	GitHubClientID     string
+	GitHubClientSecret string
+	// GoogleClientID/Secret enable Google login when both are set.
+	GoogleClientID     string
+	GoogleClientSecret string
 }
 
 func Load() Config {
@@ -49,6 +55,10 @@ func Load() Config {
 		ResendAPIKey:             os.Getenv("RESEND_API_KEY"),
 		EmailFrom:                getEnv("EMAIL_FROM", "DevPulse <onboarding@resend.dev>"),
 		AppURL:                   strings.TrimRight(getEnv("APP_URL", "http://localhost:3000"), "/"),
+		GitHubClientID:           os.Getenv("GITHUB_CLIENT_ID"),
+		GitHubClientSecret:       os.Getenv("GITHUB_CLIENT_SECRET"),
+		GoogleClientID:           os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret:       os.Getenv("GOOGLE_CLIENT_SECRET"),
 	}
 }
 

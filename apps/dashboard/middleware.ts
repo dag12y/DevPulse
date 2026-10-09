@@ -38,10 +38,12 @@ export function middleware(request: NextRequest) {
   // validation happens server-side on the first /api call (middleware
   // cannot reach the database from the edge runtime). SPA navigations and
   // expired-but-present cookies are handled by the AppShell guard after
-  // /v1/auth/me resolves.
+  // /v1/auth/me resolves. /api is excluded: those responses are JSON or
+  // redirects (the OAuth start bounce), not dashboard pages, and the API
+  // answers 401/403 itself when a cookie is missing or stale.
   const isDocument = request.headers.get("sec-fetch-dest") === "document";
   const envKeyMode = (process.env.NEXT_PUBLIC_API_KEY || "") !== "";
-  if (isDocument && !isPublicPath(pathname) && !envKeyMode && !hasSessionCookie(request)) {
+  if (isDocument && !isAPI && !isPublicPath(pathname) && !envKeyMode && !hasSessionCookie(request)) {
     const target = pathname === "/" ? "" : pathname + search;
     const login = request.nextUrl.clone();
     login.pathname = "/login";

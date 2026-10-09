@@ -41,6 +41,7 @@ export function friendlyAuthError(message: string, fallback: string): string {
   }
   if (
     lower.includes("unable to log in") ||
+    lower.includes("unable to sign in") ||
     lower.includes("unable to register") ||
     lower.includes("unable to send") ||
     lower.includes("unable to verify") ||
@@ -49,4 +50,20 @@ export function friendlyAuthError(message: string, fallback: string): string {
     return "Something went wrong on our side. Try again in a moment.";
   }
   return message || fallback;
+}
+
+/**
+ * Maps the fixed ?error= codes the API bounces back on an OAuth
+ * callback. Codes are chosen server-side; raw provider messages never
+ * reach the URL, so nothing here is attacker-controlled.
+ */
+export function friendlyOAuthError(code: string): string {
+  switch (code) {
+    case "cancelled":
+      return "Sign-in was cancelled at the provider. Try again, or use your password instead.";
+    case "account conflict":
+      return "That provider account's email already belongs to a different DevPulse account. Sign in with your password instead.";
+    default:
+      return "Social sign-in couldn't be completed. Try again, or use your password instead.";
+  }
 }

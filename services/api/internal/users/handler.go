@@ -14,6 +14,7 @@ import (
 
 	"github.com/dag12y/devpulse/internal/auth"
 	"github.com/dag12y/devpulse/internal/email"
+	"github.com/dag12y/devpulse/internal/oauth"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -40,6 +41,9 @@ const (
 	// token space is 256 bits, so this is belt-and-braces next to
 	// single-use expiry.
 	resetAttemptsPerHour = 10
+	// oauthStartAttemptsPerHour caps authorize redirects per IP; each
+	// start writes a state row and hands the browser to a third party.
+	oauthStartAttemptsPerHour = 30
 	authLimitWindow           = time.Hour
 )
 
@@ -55,6 +59,10 @@ type Store interface {
 	SetEmailVerified(ctx context.Context, userID string) error
 	UpdatePassword(ctx context.Context, userID, passwordHash string) error
 	RevokeAllSessions(ctx context.Context, userID string) error
+	CreateOAuthState(ctx context.Context, provider, stateHash, codeVerifier, redirectPath string, now, expiresAt time.Time) error
+	ConsumeOAuthState(ctx context.Context, stateHash string, now time.Time) (string, string, string, error)
+	FindOAuthAccount(ctx context.Context, provider, providerUserID string) (string, error)
+	LinkOAuthAccount(ctx context.Context, userID, provider, providerUserID, email string) error
 	CreateWorkspace(ctx context.Context, userID, name string) (Membership, error)
 	ListWorkspaces(ctx context.Context, userID string) ([]Membership, error)
 	RenameWorkspace(ctx context.Context, userID, workspaceID, name string) (string, error)
@@ -74,6 +82,7 @@ type Handler struct {
 	loginLimiter    *ipLimiter
 	emailLimiter    *ipLimiter
 	resetLimiter    *ipLimiter
+	oauthLimiter    *ipLimiter
 	// secureCookies switches the session cookie to the __Host- name with
 	// the Secure attribute (production behind TLS).
 	secureCookies bool
@@ -82,6 +91,9 @@ type Handler struct {
 	mailer email.Sender
 	// appURL is the public dashboard origin links point back to.
 	appURL string
+	// oauthProviders holds the configured login providers (GitHub,
+	// Google). Empty disables OAuth entirely.
+	oauthProviders map[string]oauth.Provider
 }
 
 // Option customises handler behaviour. Production passes
@@ -109,6 +121,15 @@ func WithAppURL(appURL string) Option {
 	}
 }
 
+// WithOAuthProviders registers the configured login providers. An empty
+// map (the default) disables OAuth: the list endpoint reports nothing
+// and start/callback answer 404.
+func WithOAuthProviders(providers map[string]oauth.Provider) Option {
+	return func(handler *Handler) {
+		handler.oauthProviders = providers
+	}
+}
+
 func NewHandler(store Store, options ...Option) *Handler {
 	handler := &Handler{
 		store:           store,
@@ -117,8 +138,10 @@ func NewHandler(store Store, options ...Option) *Handler {
 		loginLimiter:    newIPLimiter(loginAttemptsPerHour, authLimitWindow),
 		emailLimiter:    newIPLimiter(emailSendAttemptsPerHour, authLimitWindow),
 		resetLimiter:    newIPLimiter(resetAttemptsPerHour, authLimitWindow),
+		oauthLimiter:    newIPLimiter(oauthStartAttemptsPerHour, authLimitWindow),
 		mailer:          email.NewLog(),
 		appURL:          "http://localhost:3000",
+		oauthProviders:  map[string]oauth.Provider{},
 	}
 	for _, option := range options {
 		option(handler)

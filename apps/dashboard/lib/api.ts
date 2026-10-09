@@ -367,6 +367,26 @@ export function resetPassword(token: string, password: string): Promise<{ passwo
   });
 }
 
+export interface OAuthProviders {
+  github: boolean;
+  google: boolean;
+}
+
+/** Which social providers the API has credentials for; the buttons hide when none. */
+export function getOAuthProviders(): Promise<OAuthProviders> {
+  return fetchAPI<OAuthProviders>("/v1/auth/oauth/providers");
+}
+
+/**
+ * Path to the API's authorize redirect, reached through the BFF proxy.
+ * This is a full-page navigation: the API answers with a 302 to the
+ * provider, and the browser must follow it as a top-level redirect.
+ */
+export function oauthStartPath(provider: "github" | "google", next?: string): string {
+  const suffix = next && next !== "/" ? `?next=${encodeURIComponent(next)}` : "";
+  return `/api/v1/auth/oauth/${provider}/start${suffix}`;
+}
+
 export function getMe(): Promise<{ user: AuthUser; workspaces: WorkspaceMembership[] }> {
   return fetchAPI<{ user: AuthUser; workspaces: WorkspaceMembership[] }>("/v1/auth/me");
 }

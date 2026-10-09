@@ -216,6 +216,76 @@ func (repository *Repository) RevokeAllSessions(ctx context.Context, userID stri
 	return nil
 }
 
+// CreateOAuthState stores a hashed login state with its PKCE verifier,
+// purging expired states in the same statement so the table cannot
+// grow without bound between logins.
+func (repository *Repository) CreateOAuthState(ctx context.Context, provider, stateHash, codeVerifier, redirectPath string, now, expiresAt time.Time) error {
+	_, err := repository.pool.Exec(ctx,
+		`WITH purged AS (
+			DELETE FROM oauth_states WHERE expires_at < $1
+		 )
+		 INSERT INTO oauth_states (state_hash, code_verifier, provider, redirect_path, expires_at)
+		 VALUES ($2, $3, $4, $5, $6)`,
+		now, stateHash, codeVerifier, provider, redirectPath, expiresAt)
+	if err != nil {
+		return fmt.Errorf("create oauth state: %w", err)
+	}
+	return nil
+}
+
+// ConsumeOAuthState atomically deletes a live state and returns its
+// login context. Unknown and expired states report ErrNotFound — the
+// answer is identical for a forged state and a slow one.
+func (repository *Repository) ConsumeOAuthState(ctx context.Context, stateHash string, now time.Time) (string, string, string, error) {
+	var provider, codeVerifier, redirectPath string
+	err := repository.pool.QueryRow(ctx,
+		`DELETE FROM oauth_states
+		  WHERE state_hash = $1 AND expires_at > $2
+		  RETURNING provider, code_verifier, COALESCE(redirect_path, '')`,
+		stateHash, now).Scan(&provider, &codeVerifier, &redirectPath)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", "", ErrNotFound
+		}
+		return "", "", "", fmt.Errorf("consume oauth state: %w", err)
+	}
+	return provider, codeVerifier, redirectPath, nil
+}
+
+// FindOAuthAccount resolves a provider identity to a local user.
+func (repository *Repository) FindOAuthAccount(ctx context.Context, provider, providerUserID string) (string, error) {
+	var userID string
+	err := repository.pool.QueryRow(ctx,
+		`SELECT user_id::text FROM oauth_accounts
+		  WHERE provider = $1 AND provider_user_id = $2`,
+		provider, providerUserID).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("find oauth account: %w", err)
+	}
+	return userID, nil
+}
+
+// LinkOAuthAccount binds a provider identity to a user. A uniqueness
+// conflict means the identity already belongs to another account —
+// refuse rather than steal the binding.
+func (repository *Repository) LinkOAuthAccount(ctx context.Context, userID, provider, providerUserID, email string) error {
+	_, err := repository.pool.Exec(ctx,
+		`INSERT INTO oauth_accounts (user_id, provider, provider_user_id, email)
+		 VALUES ($1, $2, $3, $4)`,
+		userID, provider, providerUserID, email)
+	if err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+			return ErrOAuthConflict
+		}
+		return fmt.Errorf("link oauth account: %w", err)
+	}
+	return nil
+}
+
 // nameTakenByUser reports whether the user already belongs to a workspace
 // with this name (case-insensitive), optionally excluding one workspace
 // (the rename target itself).

@@ -41,6 +41,10 @@ type stubStore struct {
 	setEmailVerified  func(context.Context, string) error
 	updatePassword    func(context.Context, string, string) error
 	revokeAllSessions func(context.Context, string) error
+	createOAuthState  func(context.Context, string, string, string, string, time.Time, time.Time) error
+	consumeOAuthState func(context.Context, string, time.Time) (string, string, string, error)
+	findOAuthAccount  func(context.Context, string, string) (string, error)
+	linkOAuthAccount  func(context.Context, string, string, string, string) error
 	createWorkspace   func(context.Context, string, string) (Membership, error)
 	listWorkspaces    func(context.Context, string) ([]Membership, error)
 	findMembership    func(context.Context, string, string) (string, bool, error)
@@ -84,6 +88,18 @@ func (s *stubStore) UpdatePassword(ctx context.Context, userID, hash string) err
 }
 func (s *stubStore) RevokeAllSessions(ctx context.Context, userID string) error {
 	return s.revokeAllSessions(ctx, userID)
+}
+func (s *stubStore) CreateOAuthState(ctx context.Context, provider, stateHash, codeVerifier, redirectPath string, now, expires time.Time) error {
+	return s.createOAuthState(ctx, provider, stateHash, codeVerifier, redirectPath, now, expires)
+}
+func (s *stubStore) ConsumeOAuthState(ctx context.Context, stateHash string, now time.Time) (string, string, string, error) {
+	return s.consumeOAuthState(ctx, stateHash, now)
+}
+func (s *stubStore) FindOAuthAccount(ctx context.Context, provider, providerUserID string) (string, error) {
+	return s.findOAuthAccount(ctx, provider, providerUserID)
+}
+func (s *stubStore) LinkOAuthAccount(ctx context.Context, userID, provider, providerUserID, email string) error {
+	return s.linkOAuthAccount(ctx, userID, provider, providerUserID, email)
 }
 func (s *stubStore) CreateWorkspace(ctx context.Context, userID, name string) (Membership, error) {
 	return s.createWorkspace(ctx, userID, name)
