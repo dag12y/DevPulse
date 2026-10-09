@@ -113,6 +113,22 @@ func (repository *Repository) RevokeSession(ctx context.Context, tokenHash strin
 	return nil
 }
 
+// TouchSession slides a live session's expiry to now + SessionLifetime.
+// The guard clause keeps renewals to at most one per renewalInterval even
+// under constant traffic, and never extends revoked or expired sessions
+// (those must keep their original expiry so retention can purge them).
+func (repository *Repository) TouchSession(ctx context.Context, tokenHash string, now time.Time) error {
+	_, err := repository.pool.Exec(ctx,
+		`UPDATE user_sessions SET expires_at = $1
+		  WHERE token_hash = $2 AND revoked_at IS NULL
+		    AND expires_at > $3 AND expires_at <= $4`,
+		now.Add(SessionLifetime), tokenHash, now, now.Add(SessionLifetime-renewalInterval))
+	if err != nil {
+		return fmt.Errorf("touch session: %w", err)
+	}
+	return nil
+}
+
 // nameTakenByUser reports whether the user already belongs to a workspace
 // with this name (case-insensitive), optionally excluding one workspace
 // (the rename target itself).

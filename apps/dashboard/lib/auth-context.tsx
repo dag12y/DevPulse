@@ -3,13 +3,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  clearStoredSessionState,
   getMe,
-  getStoredToken,
   getStoredWorkspace,
   login as apiLogin,
   logout as apiLogout,
   register as apiRegister,
-  setStoredToken,
   setStoredWorkspace,
   type AuthUser,
   type WorkspaceMembership,
@@ -42,8 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const token = getStoredToken();
-    if (!token) {
+    // Sessions moved from localStorage to an HttpOnly cookie: drop any
+    // token a previous version left behind before validating the cookie.
+    clearStoredSessionState();
+    // The session cookie is HttpOnly, so this is the only way to learn
+    // whether we are signed in: ask the API. A 401 here is quiet state,
+    // not an error — the route guards decide where signed-out users go.
+    if (ENV_KEY_SET) {
       setLoading(false);
       return;
     }
@@ -61,8 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         if (cancelled) return;
-        // Invalid or expired session: drop it so reports show sign-in state.
-        setStoredToken("");
+        clearStoredSessionState();
         setStoredWorkspace("");
         setUser(null);
         setWorkspaces([]);
@@ -76,8 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshToken]);
 
-  const applySession = useCallback((nextUser: AuthUser, memberships: WorkspaceMembership[], token: string) => {
-    setStoredToken(token);
+  const applySession = useCallback((nextUser: AuthUser, memberships: WorkspaceMembership[]) => {
+    clearStoredSessionState();
     setUser(nextUser);
     setWorkspaces(memberships);
     const stored = getStoredWorkspace();
@@ -91,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       const response = await apiLogin(email, password);
-      applySession(response.user, response.workspaces, response.token);
+      applySession(response.user, response.workspaces ?? []);
     },
     [applySession],
   );
@@ -99,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(
     async (email: string, password: string, workspaceName?: string) => {
       const response = await apiRegister(email, password, workspaceName);
-      applySession(response.user, response.workspaces ?? [response.workspace!], response.token);
+      applySession(response.user, response.workspaces ?? [response.workspace!]);
     },
     [applySession],
   );
@@ -108,11 +111,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiLogout();
     } finally {
-      setStoredToken("");
       setStoredWorkspace("");
       setUser(null);
       setWorkspaces([]);
       setSelectedWorkspaceID(null);
+      // Deliberate full reload: drops every cached report and provider
+      // state along with the revoked session. AppShell would redirect
+      // anyway, but this also re-runs the middleware cookie check.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/login");
     }
   }, []);
 

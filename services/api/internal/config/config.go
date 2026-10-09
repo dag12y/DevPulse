@@ -17,17 +17,24 @@ type Config struct {
 	// TrackerDir points at the built tracker bundle directory
 	// (packages/tracker/dist). Empty disables /analytics.js serving.
 	TrackerDir string
+	// SessionCookieSecure marks the dashboard session cookie Secure and
+	// names it with the __Host- prefix. Defaults to true in production;
+	// override with SESSION_COOKIE_SECURE (e.g. TLS-terminating proxy in
+	// front of a development API).
+	SessionCookieSecure bool
 }
 
 func Load() Config {
+	appEnv := getEnv("APP_ENV", "development")
 	return Config{
-		AppEnv:                   getEnv("APP_ENV", "development"),
+		AppEnv:                   appEnv,
 		APIPort:                  getEnv("API_PORT", "8080"),
 		DatabaseURL:              os.Getenv("DATABASE_URL"),
 		RetentionIntervalMinutes: getIntEnv("RETENTION_INTERVAL_MINUTES", 60),
 		GeoIPDBPath:              os.Getenv("GEOIP_DB_PATH"),
 		AllowedOrigins:           getListEnv("CORS_ALLOWED_ORIGINS"),
 		TrackerDir:               os.Getenv("TRACKER_DIR"),
+		SessionCookieSecure:      getBoolEnv("SESSION_COOKIE_SECURE", appEnv == "production"),
 	}
 }
 
@@ -62,6 +69,18 @@ func getIntEnv(key string, fallback int) int {
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
+}
+
+func getBoolEnv(key string, fallback bool) bool {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
 		return fallback
 	}
 	return value

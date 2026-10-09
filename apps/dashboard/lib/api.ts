@@ -1,22 +1,14 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+import { isPublicPath, safeNext } from "@/lib/paths";
 
-const TOKEN_STORAGE_KEY = "devpulse.token";
+// All dashboard calls go through the same-origin BFF proxy (app/api),
+// which injects the HttpOnly session cookie as a Bearer token for the Go
+// API. NEXT_PUBLIC_API_URL only matters server-side, inside that proxy.
+const ENV_API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+
 const WORKSPACE_STORAGE_KEY = "devpulse.workspace";
-
-export function getStoredToken(): string {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
-}
-
-export function setStoredToken(token: string) {
-  if (typeof window === "undefined") return;
-  if (token) {
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-  } else {
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-  }
-}
+// Sessions used to live here as a bearer token readable by any script.
+// The key is cleared on boot so a stale credential cannot linger.
+const LEGACY_TOKEN_STORAGE_KEY = "devpulse.token";
 
 export function getStoredWorkspace(): string {
   if (typeof window === "undefined") return "";
@@ -29,6 +21,21 @@ export function setStoredWorkspace(workspaceID: string) {
     window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceID);
   } else {
     window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  }
+}
+
+export function clearStoredSessionState() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
   }
 }
 
@@ -126,14 +133,15 @@ export interface DevicesStats {
   viewports: DeviceBreakdown[];
 }
 
-async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...options?.headers as Record<string, string> };
-  if (!headers["Authorization"]) {
-    // Automation keys (env) take precedence; otherwise use the login session.
-    const token = API_KEY || getStoredToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
+async function fetchAPI<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  // Automation keys are the only browser-held credential; human sessions
+  // travel automatically as an HttpOnly cookie on same-origin /api calls.
+  if (!headers["Authorization"] && ENV_API_KEY) {
+    headers["Authorization"] = `Bearer ${ENV_API_KEY}`;
   }
   if (!headers["X-Workspace-ID"]) {
     const workspaceID = getStoredWorkspace();
@@ -141,19 +149,34 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
       headers["X-Workspace-ID"] = workspaceID;
     }
   }
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`/api${path}`, {
     ...options,
     headers,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    if (res.status === 401) redirectWhenSignedOut(path);
+    throw new ApiError(body.error || `Request failed: ${res.status}`, res.status);
   }
   if (res.status === 204) {
     return undefined as T;
   }
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+// A 401 outside the auth endpoints means the session died mid-use
+// (expired, revoked elsewhere). Auth endpoints own their errors instead:
+// a wrong password on /login must render inline, not redirect.
+function redirectWhenSignedOut(path: string) {
+  if (typeof window === "undefined") return;
+  if (ENV_API_KEY || path.startsWith("/v1/auth/")) return;
+  const { pathname, search } = window.location;
+  if (isPublicPath(pathname)) return;
+  // Full reload on purpose: fetch code has no router, and re-bootstrapping
+  // from scratch beats leaving stale report state behind a dead session.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+  window.location.assign(`/login?next=${encodeURIComponent(safeNext(pathname + search))}`);
 }
 
 export function getProjects(): Promise<Project[]> {
@@ -287,9 +310,11 @@ export interface WorkspaceMember {
 
 export interface AuthResponse {
   user: AuthUser;
-  workspaces: WorkspaceMembership[];
-  token: string;
-  expires_at: string;
+  /** Login returns every membership; register returns only the new workspace. */
+  workspaces?: WorkspaceMembership[];
+  /** Raw session token for direct API clients; stripped by the BFF proxy. */
+  token?: string;
+  expires_at?: string;
   workspace?: WorkspaceMembership;
 }
 

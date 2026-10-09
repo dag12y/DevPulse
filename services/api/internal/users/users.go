@@ -9,9 +9,14 @@ import (
 )
 
 const (
-	// SessionLifetime bounds how long a login stays valid without
-	// re-authenticating. There is no sliding renewal: callers log in again.
+	// SessionLifetime bounds how long a login stays valid. Sessions slide:
+	// each /v1/auth/me call extends expiry to now + SessionLifetime, but
+	// the WHERE clause in TouchSession caps that at one renewal per
+	// renewalInterval, so a busy client cannot write on every request.
 	SessionLifetime = 30 * 24 * time.Hour
+	// renewalInterval is the minimum gap between two sliding renewals of
+	// the same session.
+	renewalInterval = time.Hour
 
 	minPasswordLength = 12
 	// bcrypt silently truncates past 72 bytes; reject longer passwords

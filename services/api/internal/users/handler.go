@@ -55,15 +55,32 @@ type Handler struct {
 	now             func() time.Time
 	registerLimiter *ipLimiter
 	loginLimiter    *ipLimiter
+	// secureCookies switches the session cookie to the __Host- name with
+	// the Secure attribute (production behind TLS).
+	secureCookies bool
 }
 
-func NewHandler(store Store) *Handler {
-	return &Handler{
+// Option customises handler behaviour. Production passes
+// WithSecureCookies(true) so the session cookie is host-bound.
+type Option func(*Handler)
+
+func WithSecureCookies(secure bool) Option {
+	return func(handler *Handler) {
+		handler.secureCookies = secure
+	}
+}
+
+func NewHandler(store Store, options ...Option) *Handler {
+	handler := &Handler{
 		store:           store,
 		now:             time.Now,
 		registerLimiter: newIPLimiter(registerAttemptsPerHour, authLimitWindow),
 		loginLimiter:    newIPLimiter(loginAttemptsPerHour, authLimitWindow),
 	}
+	for _, option := range options {
+		option(handler)
+	}
+	return handler
 }
 
 type registerInput struct {
@@ -133,6 +150,7 @@ func (handler *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "unable to register")
 		return
 	}
+	handler.setSessionCookie(w, token, expiresAt)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"user":       user,
 		"workspace":  membership,
@@ -192,6 +210,7 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "unable to log in")
 		return
 	}
+	handler.setSessionCookie(w, token, expiresAt)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":       user,
 		"workspaces": workspaces,
@@ -213,16 +232,21 @@ func (handler *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "unable to log out")
 		return
 	}
+	handler.clearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Me returns the caller plus every workspace they belong to.
+// Me returns the caller plus every workspace they belong to. It also
+// slides the session's expiry forward (at most one renewal per
+// renewalInterval), so active users stay signed in while abandoned
+// sessions still expire on schedule.
 func (handler *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	userID, ok := auth.UserFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	handler.touchSession(r.Context(), r)
 	user, err := handler.store.FindUserByID(r.Context(), userID)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusUnauthorized, "invalid or expired session")
@@ -556,6 +580,29 @@ func (handler *Handler) newSession(ctx context.Context, userID string) (raw stri
 		return "", time.Time{}, err
 	}
 	return token.Raw, expiresAt, nil
+}
+
+// sessionToucher slides a live session's expiry. Optional: stores that
+// implement it get sliding renewal, others keep fixed lifetimes.
+type sessionToucher interface {
+	TouchSession(ctx context.Context, tokenHash string, now time.Time) error
+}
+
+// touchSession renews the caller's session best-effort: a failed renewal
+// never fails the request that triggered it, since the session has just
+// been authenticated as valid.
+func (handler *Handler) touchSession(ctx context.Context, r *http.Request) {
+	toucher, ok := handler.store.(sessionToucher)
+	if !ok {
+		return
+	}
+	raw, ok := auth.BearerToken(r)
+	if !ok {
+		return
+	}
+	if err := toucher.TouchSession(ctx, auth.Hash(raw), handler.now().UTC()); err != nil {
+		slog.Warn("slide session expiry", "error", err)
+	}
 }
 
 // burnUnknownUserAttempt spends bcrypt work on the unknown-email path so

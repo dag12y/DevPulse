@@ -53,7 +53,8 @@ func main() {
 	workspaceHandler := workspaces.NewHandler(workspaceRepository)
 	projectHandler := projects.NewHandler(projects.NewRepository(db.Pool))
 	usersRepository := users.NewRepository(db.Pool)
-	usersHandler := users.NewHandler(usersRepository)
+
+	usersHandler := users.NewHandler(usersRepository, users.WithSecureCookies(cfg.SessionCookieSecure))
 
 	var geo analytics.GeoResolver = analytics.NullGeoResolver{}
 	if cfg.GeoIPDBPath != "" {
