@@ -31,29 +31,39 @@ const (
 )
 
 type stubStore struct {
-	createUser        func(context.Context, string, string) (*User, error)
-	findUserByEmail   func(context.Context, string) (*User, string, error)
-	findUserByID      func(context.Context, string) (*User, error)
-	createSession     func(context.Context, string, auth.GeneratedKey, time.Time) error
-	revokeSession     func(context.Context, string) error
-	createAuthToken   func(context.Context, string, string, string, time.Time) error
-	consumeAuthToken  func(context.Context, string, string, time.Time) (string, error)
-	setEmailVerified  func(context.Context, string) error
-	updatePassword    func(context.Context, string, string) error
-	revokeAllSessions func(context.Context, string) error
-	createOAuthState  func(context.Context, string, string, string, string, time.Time, time.Time) error
-	consumeOAuthState func(context.Context, string, time.Time) (string, string, string, error)
-	findOAuthAccount  func(context.Context, string, string) (string, error)
-	linkOAuthAccount  func(context.Context, string, string, string, string) error
-	createWorkspace   func(context.Context, string, string) (Membership, error)
-	listWorkspaces    func(context.Context, string) ([]Membership, error)
-	findMembership    func(context.Context, string, string) (string, bool, error)
-	listMembers       func(context.Context, string) ([]Member, error)
-	addMember         func(context.Context, string, string, string) (*Member, error)
-	updateMember      func(context.Context, string, string, string) (*Member, error)
-	removeMember      func(context.Context, string, string) error
-	renameWorkspace   func(context.Context, string, string, string) (string, error)
-	deleteWorkspace   func(context.Context, string, string) error
+	createUser         func(context.Context, string, string) (*User, error)
+	findUserByEmail    func(context.Context, string) (*User, string, error)
+	findUserByID       func(context.Context, string) (*User, error)
+	createSession      func(context.Context, string, auth.GeneratedKey, time.Time, string, string) error
+	revokeSession      func(context.Context, string) error
+	listSessions       func(context.Context, string, string, time.Time) ([]SessionInfo, error)
+	revokeSessionByID  func(context.Context, string, string) error
+	revokeOther        func(context.Context, string, string) (int64, error)
+	accountLockState   func(context.Context, string, time.Time) (time.Time, error)
+	recordFailedLogin  func(context.Context, string, time.Time, int, time.Time) (time.Time, error)
+	clearLoginFailures func(context.Context, string) error
+	getUserTOTP        func(context.Context, string) (string, bool, error)
+	setUserTOTPSecret  func(context.Context, string, string) error
+	enableUserTOTP     func(context.Context, string) error
+	disableUserTOTP    func(context.Context, string) error
+	createAuthToken    func(context.Context, string, string, string, time.Time) error
+	consumeAuthToken   func(context.Context, string, string, time.Time) (string, error)
+	setEmailVerified   func(context.Context, string) error
+	updatePassword     func(context.Context, string, string) error
+	revokeAllSessions  func(context.Context, string) error
+	createOAuthState   func(context.Context, string, string, string, string, time.Time, time.Time) error
+	consumeOAuthState  func(context.Context, string, time.Time) (string, string, string, error)
+	findOAuthAccount   func(context.Context, string, string) (string, error)
+	linkOAuthAccount   func(context.Context, string, string, string, string) error
+	createWorkspace    func(context.Context, string, string) (Membership, error)
+	listWorkspaces     func(context.Context, string) ([]Membership, error)
+	findMembership     func(context.Context, string, string) (string, bool, error)
+	listMembers        func(context.Context, string) ([]Member, error)
+	addMember          func(context.Context, string, string, string) (*Member, error)
+	updateMember       func(context.Context, string, string, string) (*Member, error)
+	removeMember       func(context.Context, string, string) error
+	renameWorkspace    func(context.Context, string, string, string) (string, error)
+	deleteWorkspace    func(context.Context, string, string) error
 }
 
 func (s *stubStore) CreateUser(ctx context.Context, email, hash string) (*User, error) {
@@ -68,11 +78,74 @@ func (s *stubStore) FindUserByID(ctx context.Context, userID string) (*User, err
 	}
 	return s.findUserByID(ctx, userID)
 }
-func (s *stubStore) CreateSession(ctx context.Context, userID string, token auth.GeneratedKey, expires time.Time) error {
-	return s.createSession(ctx, userID, token, expires)
+func (s *stubStore) CreateSession(ctx context.Context, userID string, token auth.GeneratedKey, expires time.Time, ip, userAgent string) error {
+	if s.createSession == nil {
+		return nil
+	}
+	return s.createSession(ctx, userID, token, expires, ip, userAgent)
 }
 func (s *stubStore) RevokeSession(ctx context.Context, hash string) error {
 	return s.revokeSession(ctx, hash)
+}
+func (s *stubStore) ListSessions(ctx context.Context, userID, currentHash string, now time.Time) ([]SessionInfo, error) {
+	if s.listSessions == nil {
+		return []SessionInfo{}, nil
+	}
+	return s.listSessions(ctx, userID, currentHash, now)
+}
+func (s *stubStore) RevokeSessionByID(ctx context.Context, userID, sessionID string) error {
+	if s.revokeSessionByID == nil {
+		return nil
+	}
+	return s.revokeSessionByID(ctx, userID, sessionID)
+}
+func (s *stubStore) RevokeOtherSessions(ctx context.Context, userID, keepHash string) (int64, error) {
+	if s.revokeOther == nil {
+		return 0, nil
+	}
+	return s.revokeOther(ctx, userID, keepHash)
+}
+func (s *stubStore) AccountLockState(ctx context.Context, userID string, now time.Time) (time.Time, error) {
+	if s.accountLockState == nil {
+		return time.Time{}, nil
+	}
+	return s.accountLockState(ctx, userID, now)
+}
+func (s *stubStore) RecordFailedLogin(ctx context.Context, userID string, now time.Time, threshold int, lockUntil time.Time) (time.Time, error) {
+	if s.recordFailedLogin == nil {
+		return time.Time{}, nil
+	}
+	return s.recordFailedLogin(ctx, userID, now, threshold, lockUntil)
+}
+func (s *stubStore) ClearLoginFailures(ctx context.Context, userID string) error {
+	if s.clearLoginFailures == nil {
+		return nil
+	}
+	return s.clearLoginFailures(ctx, userID)
+}
+func (s *stubStore) GetUserTOTP(ctx context.Context, userID string) (string, bool, error) {
+	if s.getUserTOTP == nil {
+		return "", false, nil
+	}
+	return s.getUserTOTP(ctx, userID)
+}
+func (s *stubStore) SetUserTOTPSecret(ctx context.Context, userID, secret string) error {
+	if s.setUserTOTPSecret == nil {
+		return nil
+	}
+	return s.setUserTOTPSecret(ctx, userID, secret)
+}
+func (s *stubStore) EnableUserTOTP(ctx context.Context, userID string) error {
+	if s.enableUserTOTP == nil {
+		return nil
+	}
+	return s.enableUserTOTP(ctx, userID)
+}
+func (s *stubStore) DisableUserTOTP(ctx context.Context, userID string) error {
+	if s.disableUserTOTP == nil {
+		return nil
+	}
+	return s.disableUserTOTP(ctx, userID)
 }
 func (s *stubStore) CreateAuthToken(ctx context.Context, userID, kind, hash string, expires time.Time) error {
 	return s.createAuthToken(ctx, userID, kind, hash, expires)
@@ -312,7 +385,7 @@ func TestLoginIssuesSession(t *testing.T) {
 			verified := time.Now().UTC()
 			return &User{ID: testUserID, Email: email, EmailVerifiedAt: &verified}, testBcryptHash(t, "correct-horse-12"), nil
 		},
-		createSession: func(context.Context, string, auth.GeneratedKey, time.Time) error { return nil },
+		createSession: func(context.Context, string, auth.GeneratedKey, time.Time, string, string) error { return nil },
 		listWorkspaces: func(context.Context, string) ([]Membership, error) {
 			return []Membership{{WorkspaceID: testWorkspaceID, WorkspaceName: "Acme", Role: auth.RoleOwner}}, nil
 		},
@@ -625,7 +698,7 @@ func loginStub(t *testing.T) *stubStore {
 			verified := time.Now().UTC()
 			return &User{ID: testUserID, Email: email, EmailVerifiedAt: &verified}, testBcryptHash(t, "correct-horse-12"), nil
 		},
-		createSession: func(context.Context, string, auth.GeneratedKey, time.Time) error { return nil },
+		createSession: func(context.Context, string, auth.GeneratedKey, time.Time, string, string) error { return nil },
 		listWorkspaces: func(context.Context, string) ([]Membership, error) {
 			return []Membership{{WorkspaceID: testWorkspaceID, WorkspaceName: "Acme", Role: auth.RoleOwner}}, nil
 		},

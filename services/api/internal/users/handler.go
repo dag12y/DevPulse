@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/dag12y/devpulse/internal/auth"
 	"github.com/dag12y/devpulse/internal/email"
 	"github.com/dag12y/devpulse/internal/oauth"
+	"github.com/dag12y/devpulse/internal/totp"
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -45,6 +47,16 @@ const (
 	// start writes a state row and hands the browser to a third party.
 	oauthStartAttemptsPerHour = 30
 	authLimitWindow           = time.Hour
+
+	// loginLockoutThreshold is how many consecutive failed password (or
+	// TOTP) attempts on one account trigger a lockout. The per-IP
+	// limiter stays primary; this backs it up against an attacker
+	// rotating source addresses against a single target.
+	loginLockoutThreshold = 5
+	// loginLockoutDuration is how long a locked account refuses
+	// password logins. Short enough that a locked-out owner recovers
+	// without support, long enough that guessing becomes pointless.
+	loginLockoutDuration = 15 * time.Minute
 )
 
 // Store is the persistence boundary for account handlers.
@@ -52,8 +64,24 @@ type Store interface {
 	CreateUser(ctx context.Context, email, passwordHash string) (*User, error)
 	FindUserByEmail(ctx context.Context, email string) (*User, string, error)
 	FindUserByID(ctx context.Context, userID string) (*User, error)
-	CreateSession(ctx context.Context, userID string, token auth.GeneratedKey, expiresAt time.Time) error
+	CreateSession(ctx context.Context, userID string, token auth.GeneratedKey, expiresAt time.Time, ip, userAgent string) error
 	RevokeSession(ctx context.Context, tokenHash string) error
+	ListSessions(ctx context.Context, userID, currentTokenHash string, now time.Time) ([]SessionInfo, error)
+	RevokeSessionByID(ctx context.Context, userID, sessionID string) error
+	RevokeOtherSessions(ctx context.Context, userID, keepTokenHash string) (int64, error)
+	// AccountLockState reports when a locked account may try again; a
+	// zero time means the account is currently free to sign in.
+	AccountLockState(ctx context.Context, userID string, now time.Time) (time.Time, error)
+	// RecordFailedLogin counts one failed attempt and returns the new
+	// lock expiry (zero when the account is still under the threshold).
+	RecordFailedLogin(ctx context.Context, userID string, now time.Time, threshold int, lockUntil time.Time) (time.Time, error)
+	ClearLoginFailures(ctx context.Context, userID string) error
+	// GetUserTOTP returns the stored TOTP secret and whether it is
+	// enabled. An empty secret means no enrollment is pending.
+	GetUserTOTP(ctx context.Context, userID string) (string, bool, error)
+	SetUserTOTPSecret(ctx context.Context, userID, secret string) error
+	EnableUserTOTP(ctx context.Context, userID string) error
+	DisableUserTOTP(ctx context.Context, userID string) error
 	CreateAuthToken(ctx context.Context, userID, kind, tokenHash string, expiresAt time.Time) error
 	ConsumeAuthToken(ctx context.Context, kind, tokenHash string, now time.Time) (string, error)
 	SetEmailVerified(ctx context.Context, userID string) error
@@ -228,11 +256,16 @@ func (handler *Handler) Register(w http.ResponseWriter, r *http.Request) {
 type loginInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// TOTPCode is required only when the account has 2FA enabled; the
+	// API answers 401 "two-factor code required" until it arrives.
+	TOTPCode string `json:"totp_code,omitempty"`
 }
 
 // Login verifies credentials and issues a session token. Unknown emails
 // and wrong passwords produce the identical response (and cost), so the
-// endpoint does not reveal which emails are registered.
+// endpoint does not reveal which emails are registered. Accounts lock
+// after loginLockoutThreshold consecutive failures to slow guessing
+// that rotates source addresses past the per-IP limiter.
 func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if !handler.loginLimiter.Allow(auth.ClientIP(r)) {
 		w.Header().Set("Retry-After", "3600")
@@ -260,8 +293,25 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "unable to log in")
 		return
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)); err != nil {
+	// Lock check runs after the user exists (so unknown emails keep
+	// their uniform 401) but before the password: a locked account
+	// answers 429 with Retry-After regardless of the password supplied.
+	lockedUntil, err := handler.store.AccountLockState(r.Context(), user.ID, handler.now().UTC())
+	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
+		return
+	}
+	if err != nil {
+		slog.Error("check account lock", "error", err)
+		writeError(w, http.StatusInternalServerError, "unable to log in")
+		return
+	}
+	if !lockedUntil.IsZero() {
+		handler.writeLocked(w, lockedUntil)
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)); err != nil {
+		handler.recordFailedLogin(w, r, user.ID, "invalid email or password")
 		return
 	}
 	// Checked after the password so the branch is only reachable by
@@ -271,7 +321,31 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "email address not verified")
 		return
 	}
-	token, expiresAt, err := handler.newSession(r.Context(), user.ID)
+	// TOTP gate: after password + verification, so a wrong code costs a
+	// real login attempt (and counts toward lockout) but never leaks
+	// whether 2FA is on to an unauthenticated prober.
+	if user.TOTPEnabled {
+		if input.TOTPCode == "" {
+			writeError(w, http.StatusUnauthorized, "two-factor code required")
+			return
+		}
+		secret, _, err := handler.store.GetUserTOTP(r.Context(), user.ID)
+		if err != nil {
+			slog.Error("load totp secret", "error", err)
+			writeError(w, http.StatusInternalServerError, "unable to log in")
+			return
+		}
+		if !totp.Validate(input.TOTPCode, secret, handler.now().UTC()) {
+			handler.recordFailedLogin(w, r, user.ID, "invalid two-factor code")
+			return
+		}
+	}
+	if err := handler.store.ClearLoginFailures(r.Context(), user.ID); err != nil {
+		// Not fatal: the credentials just proved valid; a stale counter
+		// only means the next lockout needs one fewer miss.
+		slog.Warn("clear login failures", "error", err, "user_id", user.ID)
+	}
+	token, expiresAt, err := handler.newSession(r.Context(), user.ID, r)
 	if err != nil {
 		slog.Error("create login session", "error", err)
 		writeError(w, http.StatusInternalServerError, "unable to log in")
@@ -290,6 +364,38 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		"token":      token,
 		"expires_at": expiresAt,
 	})
+}
+
+// recordFailedLogin counts a bad attempt against the account. When this
+// attempt crossed the lockout threshold the response becomes 429 with
+// Retry-After; otherwise it stays the caller's chosen 401 so wrong
+// passwords and wrong TOTP codes look like any other miss.
+func (handler *Handler) recordFailedLogin(w http.ResponseWriter, r *http.Request, userID, message string) {
+	now := handler.now().UTC()
+	lockedUntil, err := handler.store.RecordFailedLogin(r.Context(), userID, now, loginLockoutThreshold, now.Add(loginLockoutDuration))
+	if err != nil {
+		// The failure is real either way; answer the 401 rather than
+		// turning a counter glitch into a 500 on the credential path.
+		slog.Error("record failed login", "error", err, "user_id", userID)
+		writeError(w, http.StatusUnauthorized, message)
+		return
+	}
+	if !lockedUntil.IsZero() {
+		handler.writeLocked(w, lockedUntil)
+		return
+	}
+	writeError(w, http.StatusUnauthorized, message)
+}
+
+// writeLocked answers 429 with a Retry-After that counts down the
+// remaining lockout.
+func (handler *Handler) writeLocked(w http.ResponseWriter, lockedUntil time.Time) {
+	remaining := int(lockedUntil.Sub(handler.now().UTC()).Seconds())
+	if remaining < 1 {
+		remaining = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(remaining))
+	writeError(w, http.StatusTooManyRequests, "account is temporarily locked after too many failed sign-in attempts")
 }
 
 // Logout revokes the current session. Unknown tokens still succeed so
@@ -879,13 +985,25 @@ func (handler *Handler) membership(w http.ResponseWriter, r *http.Request, works
 	return userID, role, true
 }
 
-func (handler *Handler) newSession(ctx context.Context, userID string) (raw string, expiresAt time.Time, err error) {
+// maxUserAgentLength caps what a session row stores and displays. Real
+// user agents run long; anything past a reasonable prefix is noise (and
+// free-form header text is never worth unbounded storage).
+const maxUserAgentLength = 256
+
+// newSession mints a login token for userID, recording the caller's IP
+// and user agent so the sessions list can show where the account is
+// signed in.
+func (handler *Handler) newSession(ctx context.Context, userID string, r *http.Request) (raw string, expiresAt time.Time, err error) {
 	token, err := auth.GenerateSession()
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	expiresAt = handler.now().UTC().Add(SessionLifetime)
-	if err := handler.store.CreateSession(ctx, userID, token, expiresAt); err != nil {
+	userAgent := r.UserAgent()
+	if len(userAgent) > maxUserAgentLength {
+		userAgent = userAgent[:maxUserAgentLength]
+	}
+	if err := handler.store.CreateSession(ctx, userID, token, expiresAt, auth.ClientIP(r), userAgent); err != nil {
 		return "", time.Time{}, err
 	}
 	return token.Raw, expiresAt, nil

@@ -2,6 +2,7 @@ package users
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/dag12y/devpulse/internal/auth"
 	"github.com/dag12y/devpulse/internal/database"
 	"github.com/dag12y/devpulse/internal/oauth"
+	"github.com/dag12y/devpulse/internal/totp"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -157,7 +159,7 @@ func TestUserLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.CreateSession(ctx, bob.ID, token, now.Add(time.Hour)); err != nil {
+	if err := repository.CreateSession(ctx, bob.ID, token, now.Add(time.Hour), "203.0.113.7", "test-agent"); err != nil {
 		t.Fatal(err)
 	}
 	if userID, ok, err := repository.FindSession(ctx, token.Hash, now); err != nil || !ok || userID != bob.ID {
@@ -167,7 +169,7 @@ func TestUserLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.CreateSession(ctx, bob.ID, stale, now.Add(-time.Hour)); err != nil {
+	if err := repository.CreateSession(ctx, bob.ID, stale, now.Add(-time.Hour), "203.0.113.7", "test-agent"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, err := repository.FindSession(ctx, stale.Hash, now); err != nil || ok {
@@ -361,7 +363,7 @@ func TestTouchSessionSlidesExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.CreateSession(ctx, user.ID, token, now.Add(SessionLifetime)); err != nil {
+	if err := repository.CreateSession(ctx, user.ID, token, now.Add(SessionLifetime), "203.0.113.7", "test-agent"); err != nil {
 		t.Fatal(err)
 	}
 	// A touch within renewalInterval of the stored expiry must not write
@@ -512,7 +514,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessionHash = existing.Hash
-	if err := repository.CreateSession(ctx, user.ID, existing, time.Now().UTC().Add(time.Hour)); err != nil {
+	if err := repository.CreateSession(ctx, user.ID, existing, time.Now().UTC().Add(time.Hour), "203.0.113.7", "test-agent"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -710,5 +712,227 @@ func TestOAuthFlow(t *testing.T) {
 	}
 	if expired := callback(expiredRaw, "c"); expired.Code != http.StatusBadRequest {
 		t.Fatalf("expired state: status=%d, want 400", expired.Code)
+	}
+}
+
+// TestPhase4SessionsLockoutTOTP exercises the three Phase-4 features
+// against the real store: session metadata + revocation, the failed-
+// login lockout, and the TOTP enrollment/login gate.
+func TestPhase4SessionsLockoutTOTP(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	repository := NewRepository(pool)
+	handler := NewHandler(repository)
+
+	var createdUserID string
+	defer func() {
+		if createdUserID == "" {
+			return
+		}
+		_, _ = pool.Exec(ctx, `DELETE FROM workspaces WHERE id IN (SELECT workspace_id FROM workspace_members WHERE user_id = $1)`, createdUserID)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, createdUserID)
+	}()
+
+	user, err := repository.CreateUser(ctx, "phase4@example.com", hashForTest(t, "correct-horse-12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdUserID = user.ID
+	if _, err := repository.CreateWorkspace(ctx, user.ID, "Phase4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SetEmailVerified(ctx, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	login := func(body string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/auth/login", strings.NewReader(body))
+		request.Header.Set("User-Agent", "phase4-integration/1.0")
+		request.RemoteAddr = "198.51.100.9:4242"
+		handler.Login(recorder, request)
+		return recorder
+	}
+	// Session-guarded endpoints sit behind RequireSession in main.go;
+	// replay that middleware here so the Bearer token is what (only)
+	// authenticates the call.
+	guarded := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			auth.RequireSession(repository, time.Now, h).ServeHTTP(w, r)
+		}
+	}
+
+	// --- Sessions: two logins store ip/ua; list marks the caller's own.
+	first := login(`{"email":"phase4@example.com","password":"correct-horse-12"}`)
+	if first.Code != http.StatusOK {
+		t.Fatalf("login1: status=%d body=%s", first.Code, first.Body.String())
+	}
+	second := login(`{"email":"phase4@example.com","password":"correct-horse-12"}`)
+	if second.Code != http.StatusOK {
+		t.Fatalf("login2: status=%d body=%s", second.Code, second.Body.String())
+	}
+	var rawToken string
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	rawToken = body.Token
+	listRequest := httptest.NewRequest(http.MethodGet, "/v1/auth/sessions", nil)
+	listRequest.Header.Set("Authorization", "Bearer "+rawToken)
+	listRecorder := httptest.NewRecorder()
+	guarded(handler.ListSessions)(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("sessions list: status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var sessions []SessionInfo
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("sessions = %d, want 2 (%s)", len(sessions), listRecorder.Body.String())
+	}
+	currentCount := 0
+	for _, session := range sessions {
+		if session.IP != "198.51.100.9" || session.UserAgent != "phase4-integration/1.0" {
+			t.Fatalf("session metadata = %q/%q, want ip/ua recorded", session.IP, session.UserAgent)
+		}
+		if session.Current {
+			currentCount++
+		}
+	}
+	if currentCount != 1 {
+		t.Fatalf("current sessions = %d, want exactly 1", currentCount)
+	}
+
+	// Revoke the session that is NOT current; the current one survives.
+	var otherID string
+	for _, session := range sessions {
+		if !session.Current {
+			otherID = session.ID
+		}
+	}
+	revokeRequest := httptest.NewRequest(http.MethodDelete, "/v1/auth/sessions/"+otherID, nil)
+	revokeRequest.Header.Set("Authorization", "Bearer "+rawToken)
+	revokeRequest.SetPathValue("id", otherID)
+	revokeRecorder := httptest.NewRecorder()
+	guarded(handler.RevokeSession)(revokeRecorder, revokeRequest)
+	if revokeRecorder.Code != http.StatusNoContent {
+		t.Fatalf("revoke: status=%d body=%s", revokeRecorder.Code, revokeRecorder.Body.String())
+	}
+	listRecorder = httptest.NewRecorder()
+	guarded(handler.ListSessions)(listRecorder, listRequest)
+	sessions = nil
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || !sessions[0].Current {
+		t.Fatalf("after revoke sessions = %+v, want just the current one", sessions)
+	}
+
+	// Another user's session ID → 404, no cross-user revocation.
+	otherUser, err := repository.CreateUser(ctx, "phase4-other@example.com", hashForTest(t, "correct-horse-12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, otherUser.ID)
+	}()
+	victimToken, err := auth.GenerateSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CreateSession(ctx, otherUser.ID, victimToken, time.Now().UTC().Add(time.Hour), "203.0.113.1", "x"); err != nil {
+		t.Fatal(err)
+	}
+	var victimSessionID string
+	if err := pool.QueryRow(ctx, `SELECT id::text FROM user_sessions WHERE token_hash = $1`, victimToken.Hash).Scan(&victimSessionID); err != nil {
+		t.Fatal(err)
+	}
+	foreign := httptest.NewRequest(http.MethodDelete, "/v1/auth/sessions/"+victimSessionID, nil)
+	foreign.Header.Set("Authorization", "Bearer "+rawToken)
+	foreign.SetPathValue("id", victimSessionID)
+	foreignRecorder := httptest.NewRecorder()
+	guarded(handler.RevokeSession)(foreignRecorder, foreign)
+	if foreignRecorder.Code != http.StatusNotFound {
+		t.Fatalf("foreign revoke: status=%d, want 404", foreignRecorder.Code)
+	}
+	// Their session is untouched.
+	if userID, ok, err := repository.FindSession(ctx, victimToken.Hash, time.Now().UTC()); err != nil || !ok || userID != otherUser.ID {
+		t.Fatalf("victim session after foreign revoke = %q/%v/%v", userID, ok, err)
+	}
+
+	// --- Lockout: five wrong passwords lock, correct one still 429.
+	for range loginLockoutThreshold {
+		if attempt := login(`{"email":"phase4@example.com","password":"wrong-password-1"}`); attempt.Code != http.StatusUnauthorized && attempt.Code != http.StatusTooManyRequests {
+			t.Fatalf("wrong password: status=%d", attempt.Code)
+		}
+	}
+	locked := login(`{"email":"phase4@example.com","password":"correct-horse-12"}`)
+	if locked.Code != http.StatusTooManyRequests || locked.Header().Get("Retry-After") == "" {
+		t.Fatalf("locked login: status=%d retry-after=%q body=%s", locked.Code, locked.Header().Get("Retry-After"), locked.Body.String())
+	}
+	// Clear the lock and confirm the account works again.
+	if _, err := pool.Exec(ctx, `UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = $1`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if recovered := login(`{"email":"phase4@example.com","password":"correct-horse-12"}`); recovered.Code != http.StatusOK {
+		t.Fatalf("after unlock: status=%d body=%s", recovered.Code, recovered.Body.String())
+	}
+
+	// --- TOTP: setup → enable → password-only login refused → code works.
+	setupRequest := httptest.NewRequest(http.MethodPost, "/v1/auth/2fa/setup", strings.NewReader("{}"))
+	setupRequest.Header.Set("Authorization", "Bearer "+rawToken)
+	setupRecorder := httptest.NewRecorder()
+	guarded(handler.TwoFactorSetup)(setupRecorder, setupRequest)
+	if setupRecorder.Code != http.StatusOK {
+		t.Fatalf("2fa setup: status=%d body=%s", setupRecorder.Code, setupRecorder.Body.String())
+	}
+	var setup struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(setupRecorder.Body.Bytes(), &setup); err != nil {
+		t.Fatal(err)
+	}
+	code, err := totp.GenerateCode(setup.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableRequest := httptest.NewRequest(http.MethodPost, "/v1/auth/2fa/enable", strings.NewReader(`{"code":"`+code+`"}`))
+	enableRequest.Header.Set("Authorization", "Bearer "+rawToken)
+	enableRecorder := httptest.NewRecorder()
+	guarded(handler.TwoFactorEnable)(enableRecorder, enableRequest)
+	if enableRecorder.Code != http.StatusOK {
+		t.Fatalf("2fa enable: status=%d body=%s", enableRecorder.Code, enableRecorder.Body.String())
+	}
+
+	// Password alone now fails; the live code passes.
+	noCode := login(`{"email":"phase4@example.com","password":"correct-horse-12"}`)
+	if noCode.Code != http.StatusUnauthorized || !strings.Contains(noCode.Body.String(), "two-factor code required") {
+		t.Fatalf("2fa gate: status=%d body=%s", noCode.Code, noCode.Body.String())
+	}
+	newCode, err := totp.GenerateCode(setup.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	withCode := login(`{"email":"phase4@example.com","password":"correct-horse-12","totp_code":"` + newCode + `"}`)
+	if withCode.Code != http.StatusOK {
+		t.Fatalf("2fa login: status=%d body=%s", withCode.Code, withCode.Body.String())
+	}
+
+	// Disable with the live code, then password-only works again.
+	code, err = totp.GenerateCode(setup.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disableRequest := httptest.NewRequest(http.MethodPost, "/v1/auth/2fa/disable", strings.NewReader(`{"code":"`+code+`"}`))
+	disableRequest.Header.Set("Authorization", "Bearer "+rawToken)
+	disableRecorder := httptest.NewRecorder()
+	guarded(handler.TwoFactorDisable)(disableRecorder, disableRequest)
+	if disableRecorder.Code != http.StatusOK {
+		t.Fatalf("2fa disable: status=%d body=%s", disableRecorder.Code, disableRecorder.Body.String())
+	}
+	if plain := login(`{"email":"phase4@example.com","password":"correct-horse-12"}`); plain.Code != http.StatusOK {
+		t.Fatalf("post-disable login: status=%d body=%s", plain.Code, plain.Body.String())
 	}
 }

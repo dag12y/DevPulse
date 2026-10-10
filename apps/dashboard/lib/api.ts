@@ -294,6 +294,8 @@ export interface AuthUser {
   id: string;
   email: string;
   created_at: string;
+  /** True once two-factor enrollment finished; login then demands a code. */
+  totp_enabled?: boolean;
 }
 
 export interface WorkspaceMembership {
@@ -327,10 +329,10 @@ export function register(email: string, password: string, workspaceName?: string
   });
 }
 
-export function login(email: string, password: string): Promise<AuthResponse> {
+export function login(email: string, password: string, totpCode?: string): Promise<AuthResponse> {
   return fetchAPI<AuthResponse>("/v1/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, totp_code: totpCode || undefined }),
   });
 }
 
@@ -389,6 +391,64 @@ export function oauthStartPath(provider: "github" | "google", next?: string): st
 
 export function getMe(): Promise<{ user: AuthUser; workspaces: WorkspaceMembership[] }> {
   return fetchAPI<{ user: AuthUser; workspaces: WorkspaceMembership[] }>("/v1/auth/me");
+}
+
+export interface TwoFactorSetup {
+  secret: string;
+  otpauth_url: string;
+  /** Raw PNG bytes, base64: render as a data URL for authenticator apps. */
+  qr_png_base64: string;
+}
+
+/**
+ * Starts (or restarts) two-factor enrollment: a fresh secret is stored in
+ * pending state, so login keeps asking only for the password until
+ * enableTwoFactor proves a code can be produced from it.
+ */
+export function setupTwoFactor(): Promise<TwoFactorSetup> {
+  return fetchAPI<TwoFactorSetup>("/v1/auth/2fa/setup", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function enableTwoFactor(code: string): Promise<{ enabled: boolean }> {
+  return fetchAPI<{ enabled: boolean }>("/v1/auth/2fa/enable", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+/** Requires a live code: a stolen session alone cannot strip 2FA. */
+export function disableTwoFactor(code: string): Promise<{ enabled: boolean }> {
+  return fetchAPI<{ enabled: boolean }>("/v1/auth/2fa/disable", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export interface SessionInfo {
+  id: string;
+  token_prefix: string;
+  ip: string;
+  user_agent: string;
+  created_at: string;
+  last_seen_at?: string;
+  expires_at: string;
+  /** The session behind this request: badge it, never offer to revoke it. */
+  current: boolean;
+}
+
+export function listSessions(): Promise<SessionInfo[]> {
+  return fetchAPI<SessionInfo[]>("/v1/auth/sessions");
+}
+
+export function revokeSession(id: string): Promise<void> {
+  return fetchAPI<void>(`/v1/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function revokeOtherSessions(): Promise<{ revoked: number }> {
+  return fetchAPI<{ revoked: number }>("/v1/auth/sessions/revoke-others", { method: "POST" });
 }
 
 export function listMyWorkspaces(): Promise<WorkspaceMembership[]> {

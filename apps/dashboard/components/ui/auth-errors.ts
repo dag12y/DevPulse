@@ -18,6 +18,17 @@ export function friendlyAuthError(message: string, fallback: string): string {
   if (lower.includes("invalid email or password")) {
     return "Incorrect email or password. Check for typos and try again.";
   }
+  if (lower.includes("temporarily locked")) {
+    // The API sets Retry-After with the remaining seconds; the message
+    // is all this layer sees, so keep the guidance honest about waiting.
+    return "Too many failed sign-in attempts. This account is temporarily locked — wait a few minutes, or reset your password, then try again.";
+  }
+  if (lower.includes("two-factor code required")) {
+    return "Enter the 6-digit code from your authenticator app.";
+  }
+  if (lower.includes("invalid two-factor code")) {
+    return "That code is incorrect or has expired. Check your authenticator app and try again.";
+  }
   if (lower.includes("not verified")) {
     return "Check your inbox for your verification link, then try signing in. Didn't get it? Resend below.";
   }

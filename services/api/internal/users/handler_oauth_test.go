@@ -134,7 +134,7 @@ func oauthCallbackStore(t *testing.T, provider, verifier, redirectPath string) *
 			}
 			return nil
 		},
-		createSession: func(_ context.Context, userID string, _ auth.GeneratedKey, _ time.Time) error {
+		createSession: func(_ context.Context, userID string, _ auth.GeneratedKey, _ time.Time, _, _ string) error {
 			if userID != testUserID {
 				t.Fatalf("session user = %q", userID)
 			}
@@ -212,7 +212,7 @@ func TestOAuthCallbackAdoptsExistingPasswordAccount(t *testing.T) {
 			linkedUserID = userID
 			return nil
 		},
-		createSession: func(context.Context, string, auth.GeneratedKey, time.Time) error { return nil },
+		createSession: func(context.Context, string, auth.GeneratedKey, time.Time, string, string) error { return nil },
 	}
 	handler := NewHandler(store, WithOAuthProviders(map[string]oauth.Provider{"github": provider}))
 
@@ -251,7 +251,7 @@ func TestOAuthCallbackExistingBindingSkipsLinking(t *testing.T) {
 			t.Fatal("existing binding must not re-link")
 			return nil
 		},
-		createSession: func(context.Context, string, auth.GeneratedKey, time.Time) error { return nil },
+		createSession: func(context.Context, string, auth.GeneratedKey, time.Time, string, string) error { return nil },
 	}
 	handler := NewHandler(store, WithOAuthProviders(map[string]oauth.Provider{"google": provider}))
 

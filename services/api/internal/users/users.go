@@ -59,14 +59,32 @@ var (
 
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
-// User is the public account shape. Password hashes never leave the store.
+// User is the public account shape. Password hashes and TOTP secrets
+// never leave the store.
 type User struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 	// EmailVerifiedAt is null until the owner has clicked the emailed
 	// verification link; login refuses unverified accounts.
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
+	// TOTPEnabled reports whether two-factor auth is active. The pending
+	// secret (set by setup, not yet verified) is never exposed here.
+	TOTPEnabled bool      `json:"totp_enabled,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// SessionInfo is one row of the "where am I signed in" list. The token
+// prefix (first 12 characters, e.g. "dps_ab12cd34ef56") is safe to
+// display: it identifies the row without being the credential.
+type SessionInfo struct {
+	ID          string     `json:"id"`
+	TokenPrefix string     `json:"token_prefix"`
+	IP          string     `json:"ip"`
+	UserAgent   string     `json:"user_agent"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	Current     bool       `json:"current"`
 }
 
 // Membership pairs a workspace with the caller's role in it.

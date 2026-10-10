@@ -119,7 +119,7 @@ func (handler *Handler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		handler.oauthFail(w, r, "unable to sign in")
 		return
 	}
-	token, expiresAt, err := handler.newSession(r.Context(), user.ID)
+	token, expiresAt, err := handler.newSession(r.Context(), user.ID, r)
 	if err != nil {
 		slog.Error("create oauth session", "error", err)
 		handler.oauthFail(w, r, "unable to sign in")

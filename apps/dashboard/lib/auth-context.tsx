@@ -21,7 +21,7 @@ interface AuthContextValue {
   selectedMembership: WorkspaceMembership | null;
   loading: boolean;
   usingEnvKey: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, totpCode?: string) => Promise<void>;
   register: (email: string, password: string, workspaceName?: string) => Promise<void>;
   logout: () => Promise<void>;
   selectWorkspace: (workspaceID: string) => void;
@@ -92,8 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(
-    async (email: string, password: string) => {
-      const response = await apiLogin(email, password);
+    async (email: string, password: string, totpCode?: string) => {
+      const response = await apiLogin(email, password, totpCode);
       applySession(response.user, response.workspaces ?? []);
     },
     [applySession],

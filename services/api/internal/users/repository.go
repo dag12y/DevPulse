@@ -47,8 +47,9 @@ func (repository *Repository) FindUserByEmail(ctx context.Context, email string)
 	user := new(User)
 	var hash string
 	err := repository.pool.QueryRow(ctx,
-		`SELECT id::text, email, email_verified_at, password_hash, created_at FROM users WHERE email = $1`,
-		email).Scan(&user.ID, &user.Email, &user.EmailVerifiedAt, &hash, &user.CreatedAt)
+		`SELECT id::text, email, email_verified_at, totp_enabled_at IS NOT NULL, password_hash, created_at
+		   FROM users WHERE email = $1`,
+		email).Scan(&user.ID, &user.Email, &user.EmailVerifiedAt, &user.TOTPEnabled, &hash, &user.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", ErrNotFound
@@ -62,8 +63,9 @@ func (repository *Repository) FindUserByEmail(ctx context.Context, email string)
 func (repository *Repository) FindUserByID(ctx context.Context, userID string) (*User, error) {
 	user := new(User)
 	err := repository.pool.QueryRow(ctx,
-		`SELECT id::text, email, email_verified_at, created_at FROM users WHERE id = $1`,
-		userID).Scan(&user.ID, &user.Email, &user.EmailVerifiedAt, &user.CreatedAt)
+		`SELECT id::text, email, email_verified_at, totp_enabled_at IS NOT NULL, created_at
+		   FROM users WHERE id = $1`,
+		userID).Scan(&user.ID, &user.Email, &user.EmailVerifiedAt, &user.TOTPEnabled, &user.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -73,13 +75,15 @@ func (repository *Repository) FindUserByID(ctx context.Context, userID string) (
 	return user, nil
 }
 
-// CreateSession persists a hashed login token. The raw token is shown to
-// the caller exactly once and never stored.
-func (repository *Repository) CreateSession(ctx context.Context, userID string, token auth.GeneratedKey, expiresAt time.Time) error {
+// CreateSession persists a hashed login token plus the display metadata
+// a sessions list needs. The raw token is shown to the caller exactly
+// once and never stored; ip/user_agent identify the device to its owner,
+// nothing more.
+func (repository *Repository) CreateSession(ctx context.Context, userID string, token auth.GeneratedKey, expiresAt time.Time, ip, userAgent string) error {
 	_, err := repository.pool.Exec(ctx,
-		`INSERT INTO user_sessions (user_id, token_hash, token_prefix, expires_at)
-		 VALUES ($1, $2, $3, $4)`,
-		userID, token.Hash, token.Prefix, expiresAt)
+		`INSERT INTO user_sessions (user_id, token_hash, token_prefix, expires_at, ip, user_agent, last_seen_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+		userID, token.Hash, token.Prefix, expiresAt, ip, userAgent)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
 	}
@@ -115,18 +119,207 @@ func (repository *Repository) RevokeSession(ctx context.Context, tokenHash strin
 	return nil
 }
 
-// TouchSession slides a live session's expiry to now + SessionLifetime.
-// The guard clause keeps renewals to at most one per renewalInterval even
-// under constant traffic, and never extends revoked or expired sessions
-// (those must keep their original expiry so retention can purge them).
+// TouchSession slides a live session's expiry to now + SessionLifetime
+// and bumps last_seen_at for the sessions list. The guard clause keeps
+// writes to at most one per renewalInterval even under constant traffic
+// (so "last seen" has hourly granularity), and never extends revoked or
+// expired sessions (those must keep their original expiry so retention
+// can purge them).
 func (repository *Repository) TouchSession(ctx context.Context, tokenHash string, now time.Time) error {
 	_, err := repository.pool.Exec(ctx,
-		`UPDATE user_sessions SET expires_at = $1
+		`UPDATE user_sessions SET expires_at = $1, last_seen_at = $3
 		  WHERE token_hash = $2 AND revoked_at IS NULL
 		    AND expires_at > $3 AND expires_at <= $4`,
 		now.Add(SessionLifetime), tokenHash, now, now.Add(SessionLifetime-renewalInterval))
 	if err != nil {
 		return fmt.Errorf("touch session: %w", err)
+	}
+	return nil
+}
+
+// ListSessions returns the caller's live sessions, newest activity
+// first. currentTokenHash marks the session making the request so the
+// UI can badge it and refuse to offer "revoke" for it.
+func (repository *Repository) ListSessions(ctx context.Context, userID, currentTokenHash string, now time.Time) ([]SessionInfo, error) {
+	rows, err := repository.pool.Query(ctx,
+		`SELECT id::text, token_prefix, COALESCE(ip, ''), COALESCE(user_agent, ''),
+		        created_at, last_seen_at, expires_at, token_hash = $2
+		   FROM user_sessions
+		  WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > $3
+		  ORDER BY COALESCE(last_seen_at, created_at) DESC, created_at DESC`,
+		userID, currentTokenHash, now)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	defer rows.Close()
+	sessions := make([]SessionInfo, 0)
+	for rows.Next() {
+		var session SessionInfo
+		if err := rows.Scan(&session.ID, &session.TokenPrefix, &session.IP, &session.UserAgent,
+			&session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt, &session.Current); err != nil {
+			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sessions: %w", err)
+	}
+	return sessions, nil
+}
+
+// RevokeSessionByID logs out one session by row ID, scoped to the
+// caller: another user's ID reports ErrNotFound, so the endpoint never
+// confirms whether a guessed UUID exists.
+func (repository *Repository) RevokeSessionByID(ctx context.Context, userID, sessionID string) error {
+	tag, err := repository.pool.Exec(ctx,
+		`UPDATE user_sessions SET revoked_at = NOW()
+		  WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+		sessionID, userID)
+	if err != nil {
+		return fmt.Errorf("revoke session by id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RevokeOtherSessions logs out every live session except the caller's
+// own, returning how many devices were signed out.
+func (repository *Repository) RevokeOtherSessions(ctx context.Context, userID, keepTokenHash string) (int64, error) {
+	tag, err := repository.pool.Exec(ctx,
+		`UPDATE user_sessions SET revoked_at = NOW()
+		  WHERE user_id = $1 AND revoked_at IS NULL AND token_hash <> $2`,
+		userID, keepTokenHash)
+	if err != nil {
+		return 0, fmt.Errorf("revoke other sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// AccountLockState reports when a locked account may try again. A zero
+// time means unlocked. Expired locks read as unlocked; their counter is
+// left for RecordFailedLogin to reset on the next failure.
+func (repository *Repository) AccountLockState(ctx context.Context, userID string, now time.Time) (time.Time, error) {
+	var lockedUntil *time.Time
+	err := repository.pool.QueryRow(ctx,
+		`SELECT locked_until FROM users WHERE id = $1`, userID).Scan(&lockedUntil)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, ErrNotFound
+		}
+		return time.Time{}, fmt.Errorf("check account lock: %w", err)
+	}
+	if lockedUntil != nil && lockedUntil.After(now) {
+		return *lockedUntil, nil
+	}
+	return time.Time{}, nil
+}
+
+// RecordFailedLogin counts one failed credential attempt and returns
+// the lock expiry when THIS attempt crossed the threshold (zero
+// otherwise, including when an active lock was merely kept). An expired
+// lock resets the counter instead of stacking on stale failures, and an
+// active lock is never extended — otherwise an attacker could hold a
+// victim's account hostage by failing logins forever.
+func (repository *Repository) RecordFailedLogin(ctx context.Context, userID string, now time.Time, threshold int, lockUntil time.Time) (time.Time, error) {
+	var lockedUntil *time.Time
+	err := repository.pool.QueryRow(ctx,
+		`UPDATE users SET
+		    failed_login_count = CASE
+		      WHEN locked_until IS NOT NULL AND locked_until <= $2 THEN 1
+		      ELSE failed_login_count + 1 END,
+		    locked_until = CASE
+		      WHEN locked_until IS NOT NULL AND locked_until > $2 THEN locked_until
+		      WHEN locked_until IS NOT NULL AND locked_until <= $2 THEN NULL
+		      WHEN failed_login_count + 1 >= $3 THEN $4
+		      ELSE NULL END
+		  WHERE id = $1
+		  RETURNING locked_until`,
+		userID, now, threshold, lockUntil).Scan(&lockedUntil)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, ErrNotFound
+		}
+		return time.Time{}, fmt.Errorf("record failed login: %w", err)
+	}
+	if lockedUntil != nil && lockedUntil.After(now) {
+		return *lockedUntil, nil
+	}
+	return time.Time{}, nil
+}
+
+// ClearLoginFailures resets the lockout counters after a successful
+// sign-in.
+func (repository *Repository) ClearLoginFailures(ctx context.Context, userID string) error {
+	_, err := repository.pool.Exec(ctx,
+		`UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = $1`,
+		userID)
+	if err != nil {
+		return fmt.Errorf("clear login failures: %w", err)
+	}
+	return nil
+}
+
+// GetUserTOTP returns the stored TOTP secret ("" when no enrollment is
+// pending) and whether it is enabled.
+func (repository *Repository) GetUserTOTP(ctx context.Context, userID string) (string, bool, error) {
+	var secret string
+	var enabled bool
+	err := repository.pool.QueryRow(ctx,
+		`SELECT COALESCE(totp_secret, ''), totp_enabled_at IS NOT NULL FROM users WHERE id = $1`,
+		userID).Scan(&secret, &enabled)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, ErrNotFound
+		}
+		return "", false, fmt.Errorf("get totp: %w", err)
+	}
+	return secret, enabled, nil
+}
+
+// SetUserTOTPSecret stores a pending enrollment secret and clears any
+// previous enabled state: enable must follow with a verified code, so a
+// half-finished re-setup can never leave 2FA on with an unverified
+// secret.
+func (repository *Repository) SetUserTOTPSecret(ctx context.Context, userID, secret string) error {
+	tag, err := repository.pool.Exec(ctx,
+		`UPDATE users SET totp_secret = $2, totp_enabled_at = NULL, updated_at = NOW()
+		  WHERE id = $1`, userID, secret)
+	if err != nil {
+		return fmt.Errorf("set totp secret: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// EnableUserTOTP flips 2FA on. Refused without a stored secret so a
+// code can never be verified against nothing.
+func (repository *Repository) EnableUserTOTP(ctx context.Context, userID string) error {
+	tag, err := repository.pool.Exec(ctx,
+		`UPDATE users SET totp_enabled_at = COALESCE(totp_enabled_at, NOW()), updated_at = NOW()
+		  WHERE id = $1 AND totp_secret IS NOT NULL`, userID)
+	if err != nil {
+		return fmt.Errorf("enable totp: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DisableUserTOTP turns 2FA off and destroys the secret.
+func (repository *Repository) DisableUserTOTP(ctx context.Context, userID string) error {
+	tag, err := repository.pool.Exec(ctx,
+		`UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, updated_at = NOW()
+		  WHERE id = $1 AND totp_enabled_at IS NOT NULL`, userID)
+	if err != nil {
+		return fmt.Errorf("disable totp: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

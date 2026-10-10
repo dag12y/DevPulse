@@ -35,6 +35,11 @@ function LoginForm() {
   // the address already typed into the form.
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
+  // True after a 401 "two-factor code required": the password was
+  // accepted and the API is waiting for the authenticator's 6 digits.
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpError, setTotpError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && user) router.replace(next);
@@ -47,6 +52,7 @@ function LoginForm() {
     setEmailError(null);
     setPasswordError(null);
     setFormError(null);
+    setTotpError(null);
     setNeedsVerification(false);
     setResendState("idle");
     if (!EMAIL_RE.test(trimmed)) {
@@ -57,14 +63,30 @@ function LoginForm() {
       setPasswordError("Enter your password.");
       valid = false;
     }
+    if (needs2FA && !/^\d{6}$/.test(totpCode)) {
+      setTotpError("Enter the 6-digit code from your authenticator app.");
+      valid = false;
+    }
     if (!valid) return;
     setBusy(true);
     try {
-      await login(trimmed, password);
+      await login(trimmed, password, needs2FA ? totpCode : undefined);
       router.push(next);
     } catch (err) {
+      const message = err instanceof Error ? err.message : "";
       if (err instanceof ApiError && err.status === 403) setNeedsVerification(true);
-      setFormError(friendlyAuthError(err instanceof Error ? err.message : "", "Sign in failed. Please try again."));
+      // The API asks for the second factor once the password checks out.
+      // Reveal the field (with no banner) instead of quoting the raw
+      // server string at the user.
+      if (message === "two-factor code required") {
+        setNeeds2FA(true);
+        setTotpCode("");
+      } else if (message === "invalid two-factor code") {
+        setNeeds2FA(true);
+        setTotpError(friendlyAuthError(message, "That code is incorrect or has expired."));
+      } else {
+        setFormError(friendlyAuthError(message, "Sign in failed. Please try again."));
+      }
     } finally {
       setBusy(false);
     }
@@ -106,6 +128,20 @@ function LoginForm() {
           </div>
           <PasswordField label="Password" hideLabel autoComplete="current-password" placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} error={passwordError} id="login-password" required />
         </div>
+        {needs2FA && (
+          <TextField
+            label="Authentication code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="123456"
+            autoFocus
+            value={totpCode}
+            onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
+            error={totpError}
+            required
+          />
+        )}
         {formError && (
           <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{formError}</p>
         )}
@@ -123,7 +159,7 @@ function LoginForm() {
             )}
           </div>
         )}
-        <Button loading={busy}>{busy ? "Signing in..." : "Sign in"}</Button>
+        <Button loading={busy}>{busy ? "Signing in..." : needs2FA ? "Verify and sign in" : "Sign in"}</Button>
       </form>
       <OAuthButtons next={next} />
     </AuthShell>
